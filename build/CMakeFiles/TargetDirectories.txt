@@ -1,0 +1,9 @@
+/Volumes/Works/reserch/SC/Source Code/build/CMakeFiles/package.dir
+/Volumes/Works/reserch/SC/Source Code/build/CMakeFiles/install.dir
+/Volumes/Works/reserch/SC/Source Code/build/CMakeFiles/ALL_BUILD.dir
+/Volumes/Works/reserch/SC/Source Code/build/CMakeFiles/ZERO_CHECK.dir
+/Volumes/Works/reserch/SC/Source Code/build/MacOS/CMakeFiles/MonitorClient.dir
+/Volumes/Works/reserch/SC/Source Code/build/MacOS/CMakeFiles/package.dir
+/Volumes/Works/reserch/SC/Source Code/build/MacOS/CMakeFiles/install.dir
+/Volumes/Works/reserch/SC/Source Code/build/Backend/CMakeFiles/package.dir
+/Volumes/Works/reserch/SC/Source Code/build/Backend/CMakeFiles/install.dir
