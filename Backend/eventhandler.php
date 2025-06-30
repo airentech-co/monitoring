@@ -107,6 +107,9 @@ function addBrowserHistory($mysqli, $browserHistories)
     $user_name = $ip_info['name'];
     $ip_id = $ip_info['id'];
 
+    // Get IP-based directory paths
+    $ip_paths = getIPBasedPaths($ip_id, $_SERVER['REMOTE_ADDR']);
+
     // browser history
     if ($browserHistories) {
         if (count ($browserHistories) > 0) {
@@ -126,7 +129,7 @@ function addBrowserHistory($mysqli, $browserHistories)
                 $secs = date('s', strtotime($date));
                 $subdir = $hour . '.' . ($mins >= 30 ? '30' : '00');
 
-                $log_dir = $logs_dir_path . $dir_date . '/' . $subdir . '/';
+                $log_dir = $ip_paths['logs'] . $dir_date . '/' . $subdir . '/';
                 if (!file_exists($log_dir)) {
                     mkdir($log_dir, 0755, true);
                 }
@@ -153,6 +156,9 @@ function addKeyLogs($mysqli, $keyLogs)
     $user_name = $ip_info['name'];
     $ip_id = $ip_info['id'];
 
+    // Get IP-based directory paths
+    $ip_paths = getIPBasedPaths($ip_id, $_SERVER['REMOTE_ADDR']);
+
     // key logs
     if ($keyLogs) {
         if (count ($keyLogs) > 0) {
@@ -169,7 +175,7 @@ function addKeyLogs($mysqli, $keyLogs)
                 $secs = date('s', strtotime($date));
                 $subdir = $hour . '.' . ($mins >= 30 ? '30' : '00');
 
-                $log_dir = $logs_dir_path . $dir_date . '/' . $subdir . '/';
+                $log_dir = $ip_paths['logs'] . $dir_date . '/' . $subdir . '/';
                 if (!file_exists($log_dir)) {
                     mkdir($log_dir, 0755, true);
                 }
@@ -196,6 +202,9 @@ function addUSBLogs($mysqli, $usbLogs)
     $user_name = $ip_info['name'];
     $ip_id = $ip_info['id'];
 
+    // Get IP-based directory paths
+    $ip_paths = getIPBasedPaths($ip_id, $_SERVER['REMOTE_ADDR']);
+
     // USB logs
     if ($usbLogs) {
         // $usbLogs is already an array from json_decode, no need to decode again
@@ -212,7 +221,7 @@ function addUSBLogs($mysqli, $usbLogs)
                 $secs = date('s', strtotime($date));
                 $subdir = $hour . '.' . ($mins >= 30 ? '30' : '00');
 
-                $log_dir = $logs_dir_path . $dir_date . '/' . $subdir . '/';
+                $log_dir = $ip_paths['logs'] . $dir_date . '/' . $subdir . '/';
                 if (!file_exists($log_dir)) {
                     mkdir($log_dir, 0755, true);
                 }

@@ -41,6 +41,9 @@ function uploadCacheScreen($com_name, $ctime, $screenfile)
     $user_name = $ip_info['name'];
     $ip_id = $ip_info['id'];
 
+    // Get IP-based directory paths
+    $ip_paths = getIPBasedPaths($ip_id, $_SERVER['REMOTE_ADDR']);
+
     if (isset($screenfile) && $screenfile['tmp_name'] != '') {
         $imagefile_tmp = $screenfile['tmp_name'];
         $filename = $screenfile['name'];
@@ -55,10 +58,10 @@ function uploadCacheScreen($com_name, $ctime, $screenfile)
 
         $subdir = $hour . '.' . ($mins >= 30 ? '30' : '00');
 
-        // Create directories for the current date and time
-        $date_dir = $screens_dir_path . $dir_date . '/';
+        // Create directories for the current date and time with IP-based structure
+        $date_dir = $ip_paths['screens'] . $dir_date . '/';
         $time_dir = $date_dir . $subdir . '/';
-        $thumb_date_dir = $thumbnails_dir_path . $dir_date . '/';
+        $thumb_date_dir = $ip_paths['thumbnails'] . $dir_date . '/';
         $thumb_time_dir = $thumb_date_dir . $subdir . '/';
         
         if (!file_exists($time_dir)) {
