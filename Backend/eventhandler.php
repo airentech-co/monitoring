@@ -116,7 +116,10 @@ function addBrowserHistory($mysqli, $browserHistories)
             $lastDate = null;
             foreach ($browserHistories as $browserHistory) {
                 $date = $browserHistory['date'];
+                $browser = $browserHistory['browser'];
                 $url = $browserHistory['url'];
+                $title = $browserHistory['title'];
+                $lastVisit = $browserHistory['last_visit'];
 
                 if ($lastDate == null || $lastDate < $date) {
                     $lastDate = $date;
@@ -135,7 +138,7 @@ function addBrowserHistory($mysqli, $browserHistories)
                 }
                 
                 $filePath = $log_dir . "browser_history.txt";
-                $content = "Date: {$date} | URL: {$url}\n";
+                $content = "Date: {$date} | Browser: {$browser} | URL: {$url} | Title: {$title} | Last Visit: {$lastVisit}\n";
                 file_put_contents($filePath, $content, FILE_APPEND);
             }
         }
