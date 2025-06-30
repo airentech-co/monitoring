@@ -1,4 +1,4 @@
-Windows/CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj: \
+CMakeFiles/MonitorClient.dir/MonitorClient.obj: \
  C:\Users\Ramses\ Lee\monitoring\Windows\MonitorClient.cpp \
  C:/msys64/mingw64/include/windows.h C:/msys64/mingw64/include/_mingw.h \
  C:/msys64/mingw64/include/_mingw_mac.h \
@@ -460,9 +460,6 @@ Windows/CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj: \
  C:/msys64/mingw64/include/c++/14.2.0/mutex \
  C:/msys64/mingw64/include/c++/14.2.0/bits/std_mutex.h \
  C:/msys64/mingw64/include/c++/14.2.0/bits/unique_lock.h \
- C:/msys64/mingw64/include/c++/14.2.0/set \
- C:/msys64/mingw64/include/c++/14.2.0/bits/stl_set.h \
- C:/msys64/mingw64/include/c++/14.2.0/bits/stl_multiset.h \
  C:/msys64/mingw64/include/c++/14.2.0/algorithm \
  C:/msys64/mingw64/include/c++/14.2.0/bits/stl_algo.h \
  C:/msys64/mingw64/include/c++/14.2.0/bits/algorithmfwd.h \

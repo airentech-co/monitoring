@@ -1,6 +1,9 @@
 @echo off
 echo Building MonitorSystem for Windows with MinGW-w64...
 
+REM Add CMake to PATH
+set PATH=C:\Program Files\CMake\bin;C:\msys64\mingw64\bin;%PATH%
+
 REM Check if CMake is installed
 where cmake >nul 2>nul
 if %errorlevel% neq 0 (
