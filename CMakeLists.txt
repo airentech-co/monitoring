@@ -8,7 +8,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Platform-specific settings
 if(WIN32)
     set(PLATFORM "Windows")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++17")
+    if(MSVC)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++17")
+    endif()
 elseif(APPLE)
     set(PLATFORM "MacOS")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
@@ -32,8 +34,10 @@ elseif(UNIX)
     add_subdirectory(Ubuntu)
 endif()
 
-# Backend configuration
-add_subdirectory(Backend)
+# Backend configuration - only if CMakeLists.txt exists
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Backend/CMakeLists.txt")
+    add_subdirectory(Backend)
+endif()
 
 # Print configuration summary
 message(STATUS "Building for platform: ${PLATFORM}")
@@ -59,6 +63,7 @@ install(DIRECTORY Backend/
     FILES_MATCHING PATTERN "*.php"
     PATTERN "*.inc.php"
     PATTERN "*.json"
+    PATTERN "*.sql"
 )
 
 # Create package

@@ -1,0 +1,17 @@
+C:/Users/Ramses Lee/monitoring/build_mingw/CMakeFiles/package.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/CMakeFiles/package_source.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/CMakeFiles/edit_cache.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/CMakeFiles/rebuild_cache.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/CMakeFiles/list_install_components.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/CMakeFiles/install.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/CMakeFiles/install/local.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/CMakeFiles/install/strip.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/Windows/CMakeFiles/MonitorClient.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/Windows/CMakeFiles/package.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/Windows/CMakeFiles/package_source.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/Windows/CMakeFiles/edit_cache.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/Windows/CMakeFiles/rebuild_cache.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/Windows/CMakeFiles/list_install_components.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/Windows/CMakeFiles/install.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/Windows/CMakeFiles/install/local.dir
+C:/Users/Ramses Lee/monitoring/build_mingw/Windows/CMakeFiles/install/strip.dir
