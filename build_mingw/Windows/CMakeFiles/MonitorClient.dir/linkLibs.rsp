@@ -1,0 +1,1 @@
+ C:/msys64/mingw64/lib/libsqlite3.dll.a C:/msys64/mingw64/lib/libjsoncpp.dll.a -lwininet -lgdiplus -lpsapi -lsetupapi -luser32 -lkernel32 -ladvapi32 -lshell32 -lole32 -luuid -lws2_32 -liphlpapi -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 

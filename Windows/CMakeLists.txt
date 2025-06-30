@@ -1,18 +1,26 @@
-# Windows-specific build configuration
+# Windows-specific build configuration for MinGW-w64
 
 # Find required packages for Windows
 find_package(PkgConfig REQUIRED)
 
-# Find SQLite3
+# Find SQLite3 for MinGW
 find_library(SQLITE3_LIBRARY sqlite3)
 if(NOT SQLITE3_LIBRARY)
-    message(FATAL_ERROR "SQLite3 library not found")
+    # Try alternative names for MinGW
+    find_library(SQLITE3_LIBRARY libsqlite3)
+    if(NOT SQLITE3_LIBRARY)
+        message(FATAL_ERROR "SQLite3 library not found. Please install: pacman -S mingw-w64-x86_64-sqlite3")
+    endif()
 endif()
 
-# Find JsonCpp
+# Find JsonCpp for MinGW
 find_library(JSONCPP_LIBRARY jsoncpp)
 if(NOT JSONCPP_LIBRARY)
-    message(FATAL_ERROR "JsonCpp library not found")
+    # Try alternative names for MinGW
+    find_library(JSONCPP_LIBRARY libjsoncpp)
+    if(NOT JSONCPP_LIBRARY)
+        message(FATAL_ERROR "JsonCpp library not found. Please install: pacman -S mingw-w64-x86_64-jsoncpp")
+    endif()
 endif()
 
 # Windows-specific source files
@@ -33,9 +41,10 @@ set_target_properties(MonitorClient PROPERTIES
 target_include_directories(MonitorClient PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    C:/msys64/mingw64/include
 )
 
-# Windows-specific libraries
+# Windows-specific libraries for MinGW
 target_link_libraries(MonitorClient
     ${SQLITE3_LIBRARY}
     ${JSONCPP_LIBRARY}
@@ -49,6 +58,8 @@ target_link_libraries(MonitorClient
     shell32
     ole32
     uuid
+    ws2_32
+    iphlpapi
 )
 
 # Windows-specific compiler definitions
@@ -59,12 +70,15 @@ target_compile_definitions(MonitorClient PRIVATE
     _UNICODE
 )
 
-# Windows-specific compiler flags
-if(MSVC)
+# MinGW-specific compiler flags
+if(MINGW)
     target_compile_options(MonitorClient PRIVATE
-        /W4
-        /wd4996  # Disable deprecation warnings
-        /wd4267  # Disable size_t conversion warnings
+        -Wall
+        -Wextra
+        -Wno-deprecated-declarations
+        -Wno-unused-parameter
+        -static-libgcc
+        -static-libstdc++
     )
 endif()
 
@@ -83,7 +97,7 @@ if(CPACK_GENERATOR STREQUAL "NSIS")
     ")
 endif()
 
-# Copy dependencies
+# Copy dependencies for MinGW
 if(EXISTS "${SQLITE3_LIBRARY}")
     get_filename_component(SQLITE3_DLL "${SQLITE3_LIBRARY}" PATH)
     if(EXISTS "${SQLITE3_DLL}/sqlite3.dll")

