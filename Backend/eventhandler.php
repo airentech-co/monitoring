@@ -54,6 +54,7 @@ if ($appEvent == 'Tic') {
             case 'USBLog':
                 $usbLogs = $data['USBLogs'];
                 // Process USB logs
+                error_log("USBLog event received: " . json_encode($data));
                 addUSBLogs($mysqli, $usbLogs);
                 break;
         }
@@ -195,9 +196,12 @@ function addUSBLogs($mysqli, $usbLogs)
 {
     global $logs_dir_path;
     
+    error_log("addUSBLogs called with: " . json_encode($usbLogs));
+    
     $ip_info = getClientInfo($mysqli);
 
     if ($ip_info == null) {
+        error_log("getClientInfo returned null");
         return;
     }
 
@@ -207,6 +211,8 @@ function addUSBLogs($mysqli, $usbLogs)
 
     // Get IP-based directory paths
     $ip_paths = getIPBasedPaths($ip_id, $_SERVER['REMOTE_ADDR']);
+    
+    error_log("IP paths: " . json_encode($ip_paths));
 
     // USB logs
     if ($usbLogs) {
@@ -232,6 +238,7 @@ function addUSBLogs($mysqli, $usbLogs)
                 $filePath = $log_dir . "usb_logs.txt";
                 $content = "Date: {$date} | Device: {$device_name} | Action: {$action}\n";
                 file_put_contents($filePath, $content, FILE_APPEND);
+                error_log("USB log written to: " . $filePath);
             }
         }
     }

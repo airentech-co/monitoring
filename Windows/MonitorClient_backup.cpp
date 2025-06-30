@@ -26,10 +26,31 @@ typedef ULONG PROPID;
 #include <chrono>
 #include <map>
 #include <mutex>
-#include <set>
 #include <algorithm> // for std::replace
 #include <iomanip>   // for std::put_time
 #include <iphlpapi.h> // for GetAdaptersInfo
+
+// Network adapter type constants
+#ifndef IF_TYPE_IEEE80211
+#define IF_TYPE_IEEE80211 71
+#endif
+#ifndef IF_TYPE_SOFTWARE_LOOPBACK
+#define IF_TYPE_SOFTWARE_LOOPBACK 24
+#endif
+#ifndef IfOperStatusUp
+#define IfOperStatusUp 1
+#endif
+
+// IPv6 adapter constants (if not defined in MinGW)
+#ifndef GAA_FLAG_INCLUDE_PREFIX
+#define GAA_FLAG_INCLUDE_PREFIX 0x0010
+#endif
+#ifndef AF_UNSPEC
+#define AF_UNSPEC 0
+#endif
+#ifndef ERROR_BUFFER_TOO_SMALL
+#define ERROR_BUFFER_TOO_SMALL 122
+#endif
 
 // USB device notification constants (if not defined in MinGW)
 #ifndef DBT_DEVICEARRIVAL
@@ -43,27 +64,6 @@ typedef ULONG PROPID;
 #endif
 #ifndef GUID_DEVINTERFACE_USB_DEVICE
 DEFINE_GUID(GUID_DEVINTERFACE_USB_DEVICE, 0xA5DCBF10L, 0x6530, 0x11D2, 0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED);
-#endif
-
-// Additional USB device GUIDs for better monitoring
-#ifndef GUID_DEVINTERFACE_USB_HUB
-DEFINE_GUID(GUID_DEVINTERFACE_USB_HUB, 0xF359721BL, 0xA47B, 0x11D5, 0x9C, 0xE8, 0x00, 0x50, 0x56, 0xB8, 0x7F, 0x00);
-#endif
-
-#ifndef GUID_DEVINTERFACE_DISK
-DEFINE_GUID(GUID_DEVINTERFACE_DISK, 0x53F56307L, 0xB6BF, 0x11D0, 0x94, 0xF2, 0x00, 0xA0, 0xC9, 0x1E, 0xFB, 0x8B);
-#endif
-
-#ifndef GUID_DEVINTERFACE_CDROM
-DEFINE_GUID(GUID_DEVINTERFACE_CDROM, 0x53F56308L, 0xB6BF, 0x11D0, 0x94, 0xF2, 0x00, 0xA0, 0xC9, 0x1E, 0xFB, 0x8B);
-#endif
-
-#ifndef GUID_DEVINTERFACE_KEYBOARD
-DEFINE_GUID(GUID_DEVINTERFACE_KEYBOARD, 0x884b96c3L, 0x56ef, 0x11d1, 0xbc, 0x8c, 0x00, 0xa0, 0xc9, 0x14, 0x05, 0xdd);
-#endif
-
-#ifndef GUID_DEVINTERFACE_MOUSE
-DEFINE_GUID(GUID_DEVINTERFACE_MOUSE, 0x378de44cL, 0x56ef, 0x11d1, 0xbc, 0x8c, 0x00, 0xa0, 0xc9, 0x14, 0x05, 0xdd);
 #endif
 
 // Device broadcast structures (if not defined in MinGW)
@@ -83,6 +83,162 @@ typedef struct _DEV_BROADCAST_DEVICEINTERFACE {
     GUID dbcc_classguid;
     char dbcc_name[1];
 } DEV_BROADCAST_DEVICEINTERFACE, *PDEV_BROADCAST_DEVICEINTERFACE;
+#endif
+
+// IPv6 adapter structures (if not defined in MinGW)
+#ifndef IP_ADAPTER_ADDRESSES
+typedef struct _IP_ADAPTER_ADDRESSES {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD IfIndex;
+        };
+    };
+    struct _IP_ADAPTER_ADDRESSES* Next;
+    PCHAR AdapterName;
+    PIP_ADAPTER_UNICAST_ADDRESS FirstUnicastAddress;
+    PIP_ADAPTER_ANYCAST_ADDRESS FirstAnycastAddress;
+    PIP_ADAPTER_MULTICAST_ADDRESS FirstMulticastAddress;
+    PIP_ADAPTER_DNS_SERVER_ADDRESS FirstDnsServerAddress;
+    PWCHAR DnsSuffix;
+    PWCHAR Description;
+    PWCHAR FriendlyName;
+    BYTE PhysicalAddress[MAX_ADAPTER_ADDRESS_LENGTH];
+    DWORD PhysicalAddressLength;
+    DWORD Flags;
+    DWORD Mtu;
+    DWORD IfType;
+    IF_OPER_STATUS OperStatus;
+    DWORD Ipv6IfIndex;
+    DWORD ZoneIndices[16];
+    PIP_ADAPTER_PREFIX FirstPrefix;
+} IP_ADAPTER_ADDRESSES, *PIP_ADAPTER_ADDRESSES;
+#endif
+
+#ifndef IP_ADAPTER_UNICAST_ADDRESS
+typedef struct _IP_ADAPTER_UNICAST_ADDRESS {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Flags;
+        };
+    };
+    struct _IP_ADAPTER_UNICAST_ADDRESS* Next;
+    SOCKET_ADDRESS Address;
+    IP_PREFIX_ORIGIN PrefixOrigin;
+    IP_SUFFIX_ORIGIN SuffixOrigin;
+    IP_DAD_STATE DadState;
+    ULONG ValidLifetime;
+    ULONG PreferredLifetime;
+    ULONG LeaseLifetime;
+} IP_ADAPTER_UNICAST_ADDRESS, *PIP_ADAPTER_UNICAST_ADDRESS;
+#endif
+
+#ifndef IP_ADAPTER_ANYCAST_ADDRESS
+typedef struct _IP_ADAPTER_ANYCAST_ADDRESS {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Flags;
+        };
+    };
+    struct _IP_ADAPTER_ANYCAST_ADDRESS* Next;
+    SOCKET_ADDRESS Address;
+} IP_ADAPTER_ANYCAST_ADDRESS, *PIP_ADAPTER_ANYCAST_ADDRESS;
+#endif
+
+#ifndef IP_ADAPTER_MULTICAST_ADDRESS
+typedef struct _IP_ADAPTER_MULTICAST_ADDRESS {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Flags;
+        };
+    };
+    struct _IP_ADAPTER_MULTICAST_ADDRESS* Next;
+    SOCKET_ADDRESS Address;
+} IP_ADAPTER_MULTICAST_ADDRESS, *PIP_ADAPTER_MULTICAST_ADDRESS;
+#endif
+
+#ifndef IP_ADAPTER_DNS_SERVER_ADDRESS
+typedef struct _IP_ADAPTER_DNS_SERVER_ADDRESS {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Reserved;
+        };
+    };
+    struct _IP_ADAPTER_DNS_SERVER_ADDRESS* Next;
+    SOCKET_ADDRESS Address;
+} IP_ADAPTER_DNS_SERVER_ADDRESS, *PIP_ADAPTER_DNS_SERVER_ADDRESS;
+#endif
+
+#ifndef IP_ADAPTER_PREFIX
+typedef struct _IP_ADAPTER_PREFIX {
+    union {
+        ULONGLONG Alignment;
+        struct {
+            ULONG Length;
+            DWORD Flags;
+        };
+    };
+    struct _IP_ADAPTER_PREFIX* Next;
+    SOCKET_ADDRESS Address;
+    ULONG PrefixLength;
+} IP_ADAPTER_PREFIX, *PIP_ADAPTER_PREFIX;
+#endif
+
+// Additional constants and types
+#ifndef MAX_ADAPTER_ADDRESS_LENGTH
+#define MAX_ADAPTER_ADDRESS_LENGTH 8
+#endif
+
+#ifndef IP_PREFIX_ORIGIN
+typedef enum {
+    IpPrefixOriginOther = 0,
+    IpPrefixOriginManual,
+    IpPrefixOriginWellKnown,
+    IpPrefixOriginDhcp,
+    IpPrefixOriginRouterAdvertisement
+} IP_PREFIX_ORIGIN;
+#endif
+
+#ifndef IP_SUFFIX_ORIGIN
+typedef enum {
+    IpSuffixOriginOther = 0,
+    IpSuffixOriginManual,
+    IpSuffixOriginWellKnown,
+    IpSuffixOriginDhcp,
+    IpSuffixOriginLinkLayerAddress,
+    IpSuffixOriginRandom
+} IP_SUFFIX_ORIGIN;
+#endif
+
+#ifndef IP_DAD_STATE
+typedef enum {
+    IpDadStateInvalid = 0,
+    IpDadStateTentative,
+    IpDadStateDuplicate,
+    IpDadStateDeprecated,
+    IpDadStatePreferred
+} IP_DAD_STATE;
+#endif
+
+#ifndef IF_OPER_STATUS
+typedef enum {
+    IfOperStatusUp = 1,
+    IfOperStatusDown,
+    IfOperStatusTesting,
+    IfOperStatusUnknown,
+    IfOperStatusDormant,
+    IfOperStatusNotPresent,
+    IfOperStatusLowerLayerDown
+} IF_OPER_STATUS;
 #endif
 
 #pragma comment(lib, "wininet.lib")
@@ -109,18 +265,15 @@ std::mutex dataMutex;
 HHOOK keyboardHook = NULL;
 HHOOK mouseHook = NULL;
 
-// Log file for debugging
-std::ofstream debugLogFile;
-
 // Configuration
 std::string API_BASE_URL = "http://192.168.1.45:8924";
 std::string API_ROUTE = "/webapi.php";
 std::string TIC_ROUTE = "/eventhandler.php";
 std::string APP_VERSION = "1.0";
 
-// USB monitoring using WMI
-std::thread usbMonitoringThread;
-bool usbMonitoringActive = false;
+// Global variables for USB monitoring
+HWND usbWindow = NULL;
+HDEVNOTIFY usbNotification = NULL;
 
 // Structure for browser history
 struct BrowserHistoryEntry {
@@ -168,152 +321,146 @@ std::string getChromeHistory();
 std::string getFirefoxHistory();
 std::string getEdgeHistory();
 void monitorTask();
-void writeDebugLog(const std::string& message);
 
-// Setup USB monitoring
-void setupUSBMONITORING() {
-    writeDebugLog("Starting USB monitoring setup...");
-    
-    usbMonitoringActive = true;
-    usbMonitoringThread = std::thread([]() {
-        writeDebugLog("USB monitoring thread started");
-        
-        std::set<std::string> knownDevices;
-        int loopCount = 0;
-        
-        while (usbMonitoringActive) {
-            loopCount++;
-            writeDebugLog("USB monitoring loop iteration: " + std::to_string(loopCount));
-            
-            // Get current USB devices - enumerate all devices and filter for USB
-            std::set<std::string> currentDevices;
-            
-            // Enumerate all devices
-            HDEVINFO deviceInfoSet = SetupDiGetClassDevsA(&GUID_DEVCLASS_USB, NULL, NULL, DIGCF_PRESENT);
-            if (deviceInfoSet != INVALID_HANDLE_VALUE) {
-                writeDebugLog("USB devices info set created successfully");
-                
-                SP_DEVINFO_DATA deviceInfoData;
-                deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
-                
-                DWORD deviceIndex = 0;
-                while (SetupDiEnumDeviceInfo(deviceInfoSet, deviceIndex, &deviceInfoData)) {
-                    // Get device ID
-                    char deviceId[256] = {0};
-                    if (SetupDiGetDeviceInstanceIdA(deviceInfoSet, &deviceInfoData, deviceId, sizeof(deviceId), NULL)) {
-                        std::string deviceIdStr = deviceId;
-                        
-                        currentDevices.insert(deviceIdStr);
-                        writeDebugLog("Found USB device: " + deviceIdStr);
-                        
-                        // Check if this is a new device
-                        if (knownDevices.find(deviceIdStr) == knownDevices.end()) {
-                            // New device connected
-                            std::string deviceName = "USB Device";
-                            
-                            // Try to get friendly name
-                            char friendlyName[256] = {0};
-                            if (SetupDiGetDeviceRegistryPropertyA(deviceInfoSet, &deviceInfoData, SPDRP_FRIENDLYNAME, NULL, (PBYTE)friendlyName, sizeof(friendlyName), NULL)) {
-                                deviceName = friendlyName;
-                            } else {
-                                char deviceDesc[256] = {0};
-                                if (SetupDiGetDeviceRegistryPropertyA(deviceInfoSet, &deviceInfoData, SPDRP_DEVICEDESC, NULL, (PBYTE)deviceDesc, sizeof(deviceDesc), NULL)) {
-                                    deviceName = deviceDesc;
-                                }
-                            }
-                            
-                            Json::Value usbLog;
-                            usbLog["date"] = getCurrentDateTimeString();
-                            usbLog["device_name"] = deviceName;
-                            usbLog["device_path"] = deviceIdStr;
-                            usbLog["device_type"] = "USB Device";
-                            usbLog["action"] = "Connected";
-                            
-                            writeDebugLog("USB Device Connected: " + deviceName + " (" + deviceIdStr + ")");
-                            
-                            std::lock_guard<std::mutex> lock(dataMutex);
-                            usbDeviceLogs.push_back(usbLog);
-                        }
-                    }
-                    deviceIndex++;
-                }
-                
-                writeDebugLog("Total USB devices found: " + std::to_string(currentDevices.size()));
-                SetupDiDestroyDeviceInfoList(deviceInfoSet);
-            } else {
-                writeDebugLog("Failed to create device info set. Error: " + std::to_string(GetLastError()));
-            }
-            
-            // Check for disconnected devices
-            for (const auto& device : knownDevices) {
-                if (currentDevices.find(device) == currentDevices.end()) {
-                    // Device disconnected
-                    Json::Value usbLog;
-                    usbLog["date"] = getCurrentDateTimeString();
-                    usbLog["device_name"] = "USB Device";
-                    usbLog["device_path"] = device;
-                    usbLog["device_type"] = "USB Device";
-                    usbLog["action"] = "Disconnected";
+// USB monitoring window procedure
+LRESULT CALLBACK USBWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    if (uMsg == WM_DEVICECHANGE) {
+        switch (wParam) {
+            case DBT_DEVICEARRIVAL:
+            case DBT_DEVICEREMOVECOMPLETE: {
+                DEV_BROADCAST_HDR* dbh = (DEV_BROADCAST_HDR*)lParam;
+                if (dbh->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
+                    DEV_BROADCAST_DEVICEINTERFACE* dbdi = (DEV_BROADCAST_DEVICEINTERFACE*)dbh;
                     
-                    writeDebugLog("USB Device Disconnected: " + device);
+                    std::string devicePath = dbdi->dbcc_name;
+                    std::string action = (wParam == DBT_DEVICEARRIVAL) ? "Connected" : "Disconnected";
+                    std::string timestamp = getCurrentDateTimeString();
+                    
+                    Json::Value usbLog;
+                    usbLog["date"] = timestamp;
+                    usbLog["device"] = devicePath;
+                    usbLog["action"] = action;
                     
                     std::lock_guard<std::mutex> lock(dataMutex);
                     usbDeviceLogs.push_back(usbLog);
                 }
+                break;
             }
-            
-            knownDevices = currentDevices;
-            
-            // Sleep for 2 seconds before next check
-            std::this_thread::sleep_for(std::chrono::seconds(2));
         }
-        
-        writeDebugLog("USB monitoring thread stopped");
-    });
+    }
+    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+// Setup USB monitoring
+void setupUSBMONITORING() {
+    // Register window class for USB monitoring
+    WNDCLASSA wc = {};
+    wc.lpfnWndProc = USBWindowProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = "USBMonitorWindow";
+    RegisterClassA(&wc);
     
-    writeDebugLog("USB monitoring setup completed");
+    // Create hidden window to receive device notifications
+    usbWindow = CreateWindowA("USBMonitorWindow", "USB Monitor", 0, 0, 0, 0, 0, NULL, NULL, GetModuleHandle(NULL), NULL);
+    
+    if (usbWindow) {
+        // Register for USB device notifications
+        DEV_BROADCAST_DEVICEINTERFACE notificationFilter;
+        ZeroMemory(&notificationFilter, sizeof(notificationFilter));
+        notificationFilter.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
+        notificationFilter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+        notificationFilter.dbcc_classguid = GUID_DEVINTERFACE_USB_DEVICE;
+        
+        usbNotification = RegisterDeviceNotification(usbWindow, &notificationFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
+        
+        if (!usbNotification) {
+            std::cerr << "Failed to register USB device notification" << std::endl;
+        }
+    } else {
+        std::cerr << "Failed to create USB monitoring window" << std::endl;
+    }
 }
 
 // Cleanup USB monitoring
 void cleanupUSBMONITORING() {
-    writeDebugLog("Cleaning up USB monitoring...");
-    
-    usbMonitoringActive = false;
-    
-    if (usbMonitoringThread.joinable()) {
-        usbMonitoringThread.join();
+    if (usbNotification) {
+        UnregisterDeviceNotification(usbNotification);
+        usbNotification = NULL;
     }
     
-    writeDebugLog("USB monitoring cleanup completed");
+    if (usbWindow) {
+        DestroyWindow(usbWindow);
+        usbWindow = NULL;
+    }
 }
 
 // Get MAC address
 std::string getMacAddress() {
     std::string macAddress;
+    
+    // Try to get MAC address using GetAdaptersInfo (IPv4)
     ULONG ulOutBufLen = sizeof(IP_ADAPTER_INFO);
     PIP_ADAPTER_INFO pAdapterInfo = (IP_ADAPTER_INFO*)malloc(sizeof(IP_ADAPTER_INFO));
     
-    if (pAdapterInfo == NULL) {
-        return "";
+    if (pAdapterInfo != NULL) {
+        if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == NO_ERROR) {
+            PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
+            while (pAdapter) {
+                // Check for Ethernet, Wireless, or any active adapter
+                if ((pAdapter->Type == MIB_IF_TYPE_ETHERNET || 
+                     pAdapter->Type == IF_TYPE_IEEE80211) && 
+                    pAdapter->AddressLength == 6) {
+                    
+                    char mac[18];
+                    sprintf_s(mac, "%02X:%02X:%02X:%02X:%02X:%02X",
+                        pAdapter->Address[0], pAdapter->Address[1],
+                        pAdapter->Address[2], pAdapter->Address[3],
+                        pAdapter->Address[4], pAdapter->Address[5]);
+                    macAddress = std::string(mac);
+                    break;
+                }
+                pAdapter = pAdapter->Next;
+            }
+        }
+        free(pAdapterInfo);
     }
     
-    if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == NO_ERROR) {
-        PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
-        while (pAdapter) {
-            if (pAdapter->Type == MIB_IF_TYPE_ETHERNET) {
-                char mac[18];
-                sprintf_s(mac, "%02X:%02X:%02X:%02X:%02X:%02X",
-                    pAdapter->Address[0], pAdapter->Address[1],
-                    pAdapter->Address[2], pAdapter->Address[3],
-                    pAdapter->Address[4], pAdapter->Address[5]);
-                macAddress = std::string(mac);
-                break;
+    // If we didn't get a MAC address, try with larger buffer
+    if (macAddress.empty()) {
+        ulOutBufLen = 0;
+        if (GetAdaptersInfo(NULL, &ulOutBufLen) == ERROR_BUFFER_TOO_SMALL) {
+            pAdapterInfo = (IP_ADAPTER_INFO*)malloc(ulOutBufLen);
+            if (pAdapterInfo != NULL) {
+                if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == NO_ERROR) {
+                    PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
+                    while (pAdapter) {
+                        if (pAdapter->AddressLength == 6) {
+                            char mac[18];
+                            sprintf_s(mac, "%02X:%02X:%02X:%02X:%02X:%02X",
+                                pAdapter->Address[0], pAdapter->Address[1],
+                                pAdapter->Address[2], pAdapter->Address[3],
+                                pAdapter->Address[4], pAdapter->Address[5]);
+                            macAddress = std::string(mac);
+                            
+                            // Prefer Ethernet or Wireless adapters
+                            if (pAdapter->Type == MIB_IF_TYPE_ETHERNET || 
+                                pAdapter->Type == IF_TYPE_IEEE80211) {
+                                break;
+                            }
+                        }
+                        pAdapter = pAdapter->Next;
+                    }
+                }
+                free(pAdapterInfo);
             }
-            pAdapter = pAdapter->Next;
         }
     }
     
-    free(pAdapterInfo);
+    // If still no MAC address, use a default
+    if (macAddress.empty()) {
+        macAddress = "00:00:00:00:00:00";
+    }
+    
     return macAddress;
 }
 
@@ -569,11 +716,6 @@ bool sendKeyLogs() {
 bool sendUSBLogs() {
     if (usbDeviceLogs.empty()) return true;
     
-    std::cout << "Sending " << usbDeviceLogs.size() << " USB logs" << std::endl;
-    
-    // Write to log file
-    writeDebugLog("Sending " + std::to_string(usbDeviceLogs.size()) + " USB logs to server");
-    
     std::string url = API_BASE_URL + TIC_ROUTE;
     
     Json::Value data;
@@ -589,11 +731,7 @@ bool sendUSBLogs() {
     Json::FastWriter writer;
     std::string jsonData = writer.write(data);
     
-    std::cout << "USB Log JSON: " << jsonData << std::endl;
-    
     std::string response = httpPost(url, jsonData);
-    
-    std::cout << "USB Log Response: " << response << std::endl;
     
     Json::Value root;
     Json::Reader reader;
@@ -852,15 +990,8 @@ std::string getChromeHistory() {
     std::string chromePath = std::string(localAppData) + "\\Google\\Chrome\\User Data\\Default\\History";
 #endif
     
-    // Create a temporary copy of the database to avoid locking issues
-    std::string tempPath = "temp_chrome_history.db";
-    if (!CopyFileA(chromePath.c_str(), tempPath.c_str(), FALSE)) {
-        // If copy fails, try to access the original
-        tempPath = chromePath;
-    }
-    
     sqlite3* db;
-    if (sqlite3_open(tempPath.c_str(), &db) != SQLITE_OK) {
+    if (sqlite3_open(chromePath.c_str(), &db) != SQLITE_OK) {
         return "";
     }
     
@@ -872,25 +1003,15 @@ std::string getChromeHistory() {
     if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             Json::Value entry;
-            const char* url = (char*)sqlite3_column_text(stmt, 0);
-            const char* title = (char*)sqlite3_column_text(stmt, 1);
-            
-            if (url && title) {
-                entry["url"] = url;
-                entry["title"] = title;
-                entry["last_visit"] = sqlite3_column_int64(stmt, 2);
-                historyArray.append(entry);
-            }
+            entry["url"] = (char*)sqlite3_column_text(stmt, 0);
+            entry["title"] = (char*)sqlite3_column_text(stmt, 1);
+            entry["last_visit"] = sqlite3_column_int64(stmt, 2);
+            historyArray.append(entry);
         }
         sqlite3_finalize(stmt);
     }
     
     sqlite3_close(db);
-    
-    // Clean up temporary file
-    if (tempPath != chromePath) {
-        DeleteFileA(tempPath.c_str());
-    }
     
     Json::FastWriter writer;
     return writer.write(historyArray);
@@ -911,45 +1032,16 @@ std::string getFirefoxHistory() {
     std::string firefoxPath = std::string(appData) + "\\Mozilla\\Firefox\\Profiles";
 #endif
     
-    // Find all profiles, prefer default profile
-    std::string profilePath;
+    // Find default profile
     WIN32_FIND_DATAA findData;
     HANDLE hFind = FindFirstFileA((firefoxPath + "\\*.default*").c_str(), &findData);
+    if (hFind == INVALID_HANDLE_VALUE) return "";
     
-    if (hFind != INVALID_HANDLE_VALUE) {
-        // Found default profile
-        profilePath = firefoxPath + "\\" + findData.cFileName + "\\places.sqlite";
-        FindClose(hFind);
-    } else {
-        // Try to find any profile
-        hFind = FindFirstFileA((firefoxPath + "\\*").c_str(), &findData);
-        if (hFind != INVALID_HANDLE_VALUE) {
-            do {
-                if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                    std::string testPath = firefoxPath + "\\" + findData.cFileName + "\\places.sqlite";
-                    if (GetFileAttributesA(testPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-                        profilePath = testPath;
-                        break;
-                    }
-                }
-            } while (FindNextFileA(hFind, &findData));
-            FindClose(hFind);
-        }
-    }
-    
-    if (profilePath.empty()) {
-        return "";
-    }
-    
-    // Create a temporary copy of the database to avoid locking issues
-    std::string tempPath = "temp_firefox_history.db";
-    if (!CopyFileA(profilePath.c_str(), tempPath.c_str(), FALSE)) {
-        // If copy fails, try to access the original
-        tempPath = profilePath;
-    }
+    std::string profilePath = firefoxPath + "\\" + findData.cFileName + "\\places.sqlite";
+    FindClose(hFind);
     
     sqlite3* db;
-    if (sqlite3_open(tempPath.c_str(), &db) != SQLITE_OK) {
+    if (sqlite3_open(profilePath.c_str(), &db) != SQLITE_OK) {
         return "";
     }
     
@@ -961,25 +1053,15 @@ std::string getFirefoxHistory() {
     if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             Json::Value entry;
-            const char* url = (char*)sqlite3_column_text(stmt, 0);
-            const char* title = (char*)sqlite3_column_text(stmt, 1);
-            
-            if (url && title) {
-                entry["url"] = url;
-                entry["title"] = title;
-                entry["last_visit"] = sqlite3_column_int64(stmt, 2);
-                historyArray.append(entry);
-            }
+            entry["url"] = (char*)sqlite3_column_text(stmt, 0);
+            entry["title"] = (char*)sqlite3_column_text(stmt, 1);
+            entry["last_visit"] = sqlite3_column_int64(stmt, 2);
+            historyArray.append(entry);
         }
         sqlite3_finalize(stmt);
     }
     
     sqlite3_close(db);
-    
-    // Clean up temporary file
-    if (tempPath != profilePath) {
-        DeleteFileA(tempPath.c_str());
-    }
     
     Json::FastWriter writer;
     return writer.write(historyArray);
@@ -1000,15 +1082,8 @@ std::string getEdgeHistory() {
     std::string edgePath = std::string(localAppData) + "\\Microsoft\\Edge\\User Data\\Default\\History";
 #endif
     
-    // Create a temporary copy of the database to avoid locking issues
-    std::string tempPath = "temp_edge_history.db";
-    if (!CopyFileA(edgePath.c_str(), tempPath.c_str(), FALSE)) {
-        // If copy fails, try to access the original
-        tempPath = edgePath;
-    }
-    
     sqlite3* db;
-    if (sqlite3_open(tempPath.c_str(), &db) != SQLITE_OK) {
+    if (sqlite3_open(edgePath.c_str(), &db) != SQLITE_OK) {
         return "";
     }
     
@@ -1020,25 +1095,15 @@ std::string getEdgeHistory() {
     if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             Json::Value entry;
-            const char* url = (char*)sqlite3_column_text(stmt, 0);
-            const char* title = (char*)sqlite3_column_text(stmt, 1);
-            
-            if (url && title) {
-                entry["url"] = url;
-                entry["title"] = title;
-                entry["last_visit"] = sqlite3_column_int64(stmt, 2);
-                historyArray.append(entry);
-            }
+            entry["url"] = (char*)sqlite3_column_text(stmt, 0);
+            entry["title"] = (char*)sqlite3_column_text(stmt, 1);
+            entry["last_visit"] = sqlite3_column_int64(stmt, 2);
+            historyArray.append(entry);
         }
         sqlite3_finalize(stmt);
     }
     
     sqlite3_close(db);
-    
-    // Clean up temporary file
-    if (tempPath != edgePath) {
-        DeleteFileA(tempPath.c_str());
-    }
     
     Json::FastWriter writer;
     return writer.write(historyArray);
@@ -1112,6 +1177,8 @@ int main() {
     macAddress = getMacAddress();
     if (macAddress.empty()) {
         std::cerr << "Warning: Could not get MAC address" << std::endl;
+    } else {
+        std::cout << "MAC Address: " << macAddress << std::endl;
     }
     
     // Setup keyboard monitoring
@@ -1119,11 +1186,9 @@ int main() {
     
     // Setup USB monitoring
     setupUSBMONITORING();
-    writeDebugLog("USB monitoring setup completed");
     
     // Start monitoring thread
     std::thread monitorThread(monitorTask);
-    writeDebugLog("Monitoring thread started");
     
     // Message loop
     MSG msg;
@@ -1140,14 +1205,4 @@ int main() {
     CoUninitialize();
     
     return 0;
-}
-
-// Write debug log to file
-void writeDebugLog(const std::string& message) {
-    std::ofstream logFile("monitor_debug.log", std::ios::app);
-    if (logFile.is_open()) {
-        std::string timestamp = getCurrentDateTimeString();
-        logFile << "[" << timestamp << "] " << message << std::endl;
-        logFile.close();
-    }
 } 
