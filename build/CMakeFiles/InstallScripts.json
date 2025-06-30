@@ -1,9 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Volumes/Works/reserch/SC/Source Code/build/cmake_install.cmake",
-		"/Volumes/Works/reserch/SC/Source Code/build/MacOS/cmake_install.cmake",
-		"/Volumes/Works/reserch/SC/Source Code/build/Backend/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

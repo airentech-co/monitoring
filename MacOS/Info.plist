@@ -33,5 +33,32 @@
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
+    <!-- Required permissions for monitoring functionality -->
+    <key>NSAccessibilityUsageDescription</key>
+    <string>This app needs Accessibility access to monitor keyboard input and system events for security monitoring purposes.</string>
+    <key>NSSystemAdministrationUsageDescription</key>
+    <string>This app needs system administration access to capture screenshots and monitor system events.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>This app may need microphone access for system monitoring.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>This app may need camera access for system monitoring.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>This app may need location access for system monitoring.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>This app may need photo library access for system monitoring.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>This app may need contacts access for system monitoring.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>This app may need reminders access for system monitoring.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>This app may need calendar access for system monitoring.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>This app needs Apple Events access to monitor system events and applications.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>This app needs desktop folder access for system monitoring.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>This app needs documents folder access for system monitoring.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>This app needs downloads folder access for system monitoring.</string>
 </dict>
 </plist> 
