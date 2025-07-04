@@ -8,7 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "C:/Users/Ramses Lee/monitoring/Windows/MonitorClient.cpp" "Windows/CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj" "gcc" "Windows/CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj.d"
+  "C:/Users/Ramses Lee/monitoring/Windows/MonitorClient.cpp" "CMakeFiles/MonitorClient.dir/MonitorClient.obj" "gcc" "CMakeFiles/MonitorClient.dir/MonitorClient.obj.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

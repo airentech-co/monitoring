@@ -1,4 +1,4 @@
-Windows/CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj: \
+CMakeFiles/MonitorClient.dir/MonitorClient.obj: \
  C:\Users\Ramses\ Lee\monitoring\Windows\MonitorClient.cpp \
  C:/msys64/mingw64/include/windows.h C:/msys64/mingw64/include/_mingw.h \
  C:/msys64/mingw64/include/_mingw_mac.h \
@@ -488,4 +488,5 @@ Windows/CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj: \
  C:/msys64/mingw64/include/tcpmib.h C:/msys64/mingw64/include/ipexport.h \
  C:/msys64/mingw64/include/iptypes.h C:/msys64/mingw64/include/ifdef.h \
  C:/msys64/mingw64/include/tcpestats.h \
- C:/msys64/mingw64/include/netioapi.h
+ C:/msys64/mingw64/include/netioapi.h \
+ C:/msys64/mingw64/include/shellscalingapi.h

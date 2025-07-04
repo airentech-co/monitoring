@@ -53,7 +53,7 @@ RM = C:\msys64\mingw64\bin\cmake.exe -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = "C:\Users\Ramses Lee\monitoring"
+CMAKE_SOURCE_DIR = "C:\Users\Ramses Lee\monitoring\Windows"
 
 # The top-level build directory on which CMake was run.
 CMAKE_BINARY_DIR = "C:\Users\Ramses Lee\monitoring\build_mingw"
@@ -62,71 +62,52 @@ CMAKE_BINARY_DIR = "C:\Users\Ramses Lee\monitoring\build_mingw"
 # Directory level rules for the build root directory
 
 # The main recursive "all" target.
-all: Windows/all
+all: CMakeFiles/MonitorClient.dir/all
 .PHONY : all
 
 # The main recursive "codegen" target.
-codegen: Windows/codegen
+codegen: CMakeFiles/MonitorClient.dir/codegen
 .PHONY : codegen
 
 # The main recursive "preinstall" target.
-preinstall: Windows/preinstall
+preinstall:
 .PHONY : preinstall
 
 # The main recursive "clean" target.
-clean: Windows/clean
+clean: CMakeFiles/MonitorClient.dir/clean
 .PHONY : clean
 
 #=============================================================================
-# Directory level rules for directory Windows
-
-# Recursive "all" directory target.
-Windows/all: Windows/CMakeFiles/MonitorClient.dir/all
-.PHONY : Windows/all
-
-# Recursive "codegen" directory target.
-Windows/codegen: Windows/CMakeFiles/MonitorClient.dir/codegen
-.PHONY : Windows/codegen
-
-# Recursive "preinstall" directory target.
-Windows/preinstall:
-.PHONY : Windows/preinstall
-
-# Recursive "clean" directory target.
-Windows/clean: Windows/CMakeFiles/MonitorClient.dir/clean
-.PHONY : Windows/clean
-
-#=============================================================================
-# Target rules for target Windows/CMakeFiles/MonitorClient.dir
+# Target rules for target CMakeFiles/MonitorClient.dir
 
 # All Build rule for target.
-Windows/CMakeFiles/MonitorClient.dir/all:
-	$(MAKE) $(MAKESILENT) -f Windows\CMakeFiles\MonitorClient.dir\build.make Windows/CMakeFiles/MonitorClient.dir/depend
-	$(MAKE) $(MAKESILENT) -f Windows\CMakeFiles\MonitorClient.dir\build.make Windows/CMakeFiles/MonitorClient.dir/build
+CMakeFiles/MonitorClient.dir/all:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir="C:\Users\Ramses Lee\monitoring\build_mingw\CMakeFiles" --progress-num=1,2 "Built target MonitorClient"
-.PHONY : Windows/CMakeFiles/MonitorClient.dir/all
+.PHONY : CMakeFiles/MonitorClient.dir/all
 
 # Build rule for subdir invocation for target.
-Windows/CMakeFiles/MonitorClient.dir/rule: cmake_check_build_system
+CMakeFiles/MonitorClient.dir/rule: cmake_check_build_system
 	$(CMAKE_COMMAND) -E cmake_progress_start "C:\Users\Ramses Lee\monitoring\build_mingw\CMakeFiles" 2
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 Windows/CMakeFiles/MonitorClient.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 CMakeFiles/MonitorClient.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start "C:\Users\Ramses Lee\monitoring\build_mingw\CMakeFiles" 0
-.PHONY : Windows/CMakeFiles/MonitorClient.dir/rule
+.PHONY : CMakeFiles/MonitorClient.dir/rule
 
 # Convenience name for target.
-MonitorClient: Windows/CMakeFiles/MonitorClient.dir/rule
+MonitorClient: CMakeFiles/MonitorClient.dir/rule
 .PHONY : MonitorClient
 
 # codegen rule for target.
-Windows/CMakeFiles/MonitorClient.dir/codegen:
-	$(MAKE) $(MAKESILENT) -f Windows\CMakeFiles\MonitorClient.dir\build.make Windows/CMakeFiles/MonitorClient.dir/codegen
+CMakeFiles/MonitorClient.dir/codegen:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/codegen
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir="C:\Users\Ramses Lee\monitoring\build_mingw\CMakeFiles" --progress-num=1,2 "Finished codegen for target MonitorClient"
-.PHONY : Windows/CMakeFiles/MonitorClient.dir/codegen
+.PHONY : CMakeFiles/MonitorClient.dir/codegen
 
 # clean rule for target.
-Windows/CMakeFiles/MonitorClient.dir/clean:
-	$(MAKE) $(MAKESILENT) -f Windows\CMakeFiles\MonitorClient.dir\build.make Windows/CMakeFiles/MonitorClient.dir/clean
-.PHONY : Windows/CMakeFiles/MonitorClient.dir/clean
+CMakeFiles/MonitorClient.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/clean
+.PHONY : CMakeFiles/MonitorClient.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

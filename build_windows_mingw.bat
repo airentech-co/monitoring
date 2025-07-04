@@ -32,7 +32,7 @@ cd build_mingw
 
 REM Configure with CMake for MinGW
 echo Configuring project with MinGW...
-cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:\msys64\mingw64
+cmake ..\Windows -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:\msys64\mingw64
 if %errorlevel% neq 0 (
     echo Error: CMake configuration failed
     pause

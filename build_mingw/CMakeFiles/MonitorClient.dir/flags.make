@@ -6,5 +6,5 @@ CXX_DEFINES = -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE -D_WIN32_WINNT=0x0601
 
 CXX_INCLUDES = @CMakeFiles/MonitorClient.dir/includes_CXX.rsp
 
-CXX_FLAGS = -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wno-deprecated-declarations -Wno-unused-parameter -static-libgcc -static-libstdc++
+CXX_FLAGS = -O3 -DNDEBUG -Wall -Wextra -Wno-deprecated-declarations -Wno-unused-parameter -static-libgcc -static-libstdc++
 

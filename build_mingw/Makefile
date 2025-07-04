@@ -56,33 +56,13 @@ RM = C:\msys64\mingw64\bin\cmake.exe -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = "C:\Users\Ramses Lee\monitoring"
+CMAKE_SOURCE_DIR = "C:\Users\Ramses Lee\monitoring\Windows"
 
 # The top-level build directory on which CMake was run.
 CMAKE_BINARY_DIR = "C:\Users\Ramses Lee\monitoring\build_mingw"
 
 #=============================================================================
 # Targets provided globally by CMake.
-
-# Special rule for the target package
-package: preinstall
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Run CPack packaging tool..."
-	C:\msys64\mingw64\bin\cpack.exe --config ./CPackConfig.cmake
-.PHONY : package
-
-# Special rule for the target package
-package/fast: package
-.PHONY : package/fast
-
-# Special rule for the target package_source
-package_source:
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Run CPack packaging tool for source..."
-	C:\msys64\mingw64\bin\cpack.exe --config ./CPackSourceConfig.cmake "C:/Users/Ramses Lee/monitoring/build_mingw/CPackSourceConfig.cmake"
-.PHONY : package_source
-
-# Special rule for the target package_source
-package_source/fast: package_source
-.PHONY : package_source/fast
 
 # Special rule for the target edit_cache
 edit_cache:
@@ -190,8 +170,23 @@ MonitorClient: cmake_check_build_system
 
 # fast build rule for target.
 MonitorClient/fast:
-	$(MAKE) $(MAKESILENT) -f Windows\CMakeFiles\MonitorClient.dir\build.make Windows/CMakeFiles/MonitorClient.dir/build
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/build
 .PHONY : MonitorClient/fast
+
+# target to build an object file
+MonitorClient.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/MonitorClient.obj
+.PHONY : MonitorClient.obj
+
+# target to preprocess a source file
+MonitorClient.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/MonitorClient.i
+.PHONY : MonitorClient.i
+
+# target to generate assembly for a file
+MonitorClient.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/MonitorClient.s
+.PHONY : MonitorClient.s
 
 # Help Target
 help:
@@ -204,10 +199,11 @@ help:
 	@echo ... install/local
 	@echo ... install/strip
 	@echo ... list_install_components
-	@echo ... package
-	@echo ... package_source
 	@echo ... rebuild_cache
 	@echo ... MonitorClient
+	@echo ... MonitorClient.obj
+	@echo ... MonitorClient.i
+	@echo ... MonitorClient.s
 .PHONY : help
 
 

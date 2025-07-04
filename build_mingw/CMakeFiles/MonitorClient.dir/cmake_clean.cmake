@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj"
-  "CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj.d"
+  "CMakeFiles/MonitorClient.dir/MonitorClient.obj"
+  "CMakeFiles/MonitorClient.dir/MonitorClient.obj.d"
   "MonitorClient.exe"
   "MonitorClient.exe.manifest"
   "MonitorClient.pdb"
