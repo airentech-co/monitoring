@@ -131,24 +131,77 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Logging Functions
     
     private func setupLogging() {
-        // Save log file in the same directory as AppDelegate.swift (source directory)
-        let currentDirectory = FileManager.default.currentDirectoryPath
-        let logURL = URL(fileURLWithPath: currentDirectory).appendingPathComponent(logFile)
+        // Try multiple locations for log file
+        let possibleLogPaths = [
+            FileManager.default.currentDirectoryPath,
+            NSTemporaryDirectory(),
+            NSHomeDirectory() + "/Desktop",
+            "/tmp"
+        ]
         
-        // Create log file if it doesn't exist
-        if !FileManager.default.fileExists(atPath: logURL.path) {
-            FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: nil)
+        var logURL: URL?
+        var logFileCreated = false
+        
+        // Try to create log file in different locations
+        for path in possibleLogPaths {
+            let testURL = URL(fileURLWithPath: path).appendingPathComponent(logFile)
+            
+            do {
+                // Create log file if it doesn't exist
+                if !FileManager.default.fileExists(atPath: testURL.path) {
+                    try "".write(to: testURL, atomically: true, encoding: .utf8)
+                }
+                
+                // Test if we can write to the file
+                try "test".write(to: testURL, atomically: true, encoding: .utf8)
+                
+                logURL = testURL
+                logFileCreated = true
+                break
+            } catch {
+                print("Failed to create log file at \(testURL.path): \(error)")
+                continue
+            }
         }
         
-        // Open file handle for writing
-        logFileHandle = try? FileHandle(forWritingTo: logURL)
-        logFileHandle?.seekToEndOfFile()
+        // If we couldn't create a log file, use console only
+        if !logFileCreated {
+            print("⚠️  Could not create log file. Using console logging only.")
+            logFileHandle = nil
+        } else {
+            // Open file handle for writing
+            do {
+                logFileHandle = try FileHandle(forWritingTo: logURL!)
+                logFileHandle?.seekToEndOfFile()
+                print("✅ Log file created at: \(logURL!.path)")
+            } catch {
+                print("⚠️  Could not open log file handle: \(error). Using console logging only.")
+                logFileHandle = nil
+            }
+        }
         
-        logMessage("=== MonitorClient Started ===", level: .info)
-        logMessage("Version: \(APP_VERSION)", level: .info)
-        logMessage("Mac Address: \(macAddress)", level: .info)
-        logMessage("Server IP: \(storage.string(forKey: "server-ip") ?? "unknown")", level: .info)
-        logMessage("Log file location: \(logURL.path)", level: .info)
+        // Always log startup information
+        let startupInfo = """
+        === MonitorClient Started ===
+        Version: \(APP_VERSION)
+        Mac Address: \(macAddress)
+        Server IP: \(storage.string(forKey: "server-ip") ?? "unknown")
+        Log file location: \(logURL?.path ?? "console only")
+        Current directory: \(FileManager.default.currentDirectoryPath)
+        Home directory: \(NSHomeDirectory())
+        """
+        
+        print(startupInfo)
+        
+        // Write to log file if available
+        if let data = startupInfo.data(using: .utf8) {
+            logFileHandle?.write(data)
+            logFileHandle?.synchronizeFile()
+        }
+        
+        // System log
+        let osLog = OSLog(subsystem: "com.alice.MonitorClient", category: "monitoring")
+        os_log("MonitorClient started - Version: %{public}@, Server: %{public}@", log: osLog, type: .info, APP_VERSION, storage.string(forKey: "server-ip") ?? "unknown")
     }
     
     func logMessage(_ message: String, level: LogLevel = .info) {
@@ -999,24 +1052,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("MonitorClient/\(APP_VERSION)", forHTTPHeaderField: "User-Agent")
+            request.timeoutInterval = 30.0
             request.httpBody = jsonData
             
             logMessage("Sending tic event to: \(urlString)", level: .debug)
+            logMessage("Request headers: \(request.allHTTPHeaderFields ?? [:])", level: .debug)
+            logMessage("Request body size: \(jsonData.count) bytes", level: .debug)
             
             // Send request
             let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
                 DispatchQueue.main.async {
                     if let error = error {
                         self?.logError("Tic event network error: \(error)", context: "TicEvent")
+                        self?.logError("Error details: \(error.localizedDescription)", context: "TicEvent")
                         return
                     }
                     
                     if let httpResponse = response as? HTTPURLResponse {
                         self?.logMessage("Tic event HTTP response: \(httpResponse.statusCode)", level: .debug)
+                        self?.logMessage("Response headers: \(httpResponse.allHeaderFields)", level: .debug)
+                        
+                        if httpResponse.statusCode != 200 {
+                            self?.logError("Tic event HTTP error: \(httpResponse.statusCode)", context: "TicEvent")
+                        }
                     }
                     
                     if let data = data, let responseString = String(data: data, encoding: .utf8) {
                         self?.logSuccess("Tic event sent successfully", details: "Response: \(responseString)")
+                        self?.logMessage("Response data size: \(data.count) bytes", level: .debug)
                         
                         let jdata = self?.convertToDictionary(text: responseString)
                         if jdata != nil && (jdata?["LastBrowserTic"]) != nil {
@@ -1029,6 +1093,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         }
                     } else {
                         self?.logError("No response data received for tic event", context: "TicEvent")
+                        if let data = data {
+                            self?.logMessage("Raw response data: \(data)", level: .debug)
+                        }
                     }
                 }
             }
