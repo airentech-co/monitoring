@@ -251,7 +251,20 @@ void MonitorClient::grabScreen(QString filePath, bool& ok)
     QPixmap p;
     grabEntireDesktop(filePath + ".png", p, ok);
     if (ok) {
-        p.save(filePath + ".jpg");
+        // Optimize image quality and size for smaller file
+        QImage image = p.toImage();
+        
+        // Resize if image is too large (optional - for very high resolution displays)
+        if (image.width() > 1920 || image.height() > 1080) {
+            image = image.scaled(1920, 1080, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        }
+        
+        // Save with optimized JPEG compression
+        ok = image.save(filePath + ".jpg", "JPEG", 70); // 70% quality for good balance
+        
+        // Log file size for monitoring
+        QFileInfo fileInfo(filePath + ".jpg");
+        qDebug() << "Screenshot saved:" << filePath + ".jpg" << "Size:" << fileInfo.size() / 1024 << "KB";
     }
 }
 
