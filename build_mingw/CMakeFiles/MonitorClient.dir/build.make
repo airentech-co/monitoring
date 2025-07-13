@@ -71,29 +71,29 @@ include CMakeFiles/MonitorClient.dir/flags.make
 CMakeFiles/MonitorClient.dir/codegen:
 .PHONY : CMakeFiles/MonitorClient.dir/codegen
 
-CMakeFiles/MonitorClient.dir/MonitorClient.obj: CMakeFiles/MonitorClient.dir/flags.make
-CMakeFiles/MonitorClient.dir/MonitorClient.obj: CMakeFiles/MonitorClient.dir/includes_CXX.rsp
-CMakeFiles/MonitorClient.dir/MonitorClient.obj: C:/Users/Ramses\ Lee/monitoring/Windows/MonitorClient.cpp
-CMakeFiles/MonitorClient.dir/MonitorClient.obj: CMakeFiles/MonitorClient.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="C:\Users\Ramses Lee\monitoring\build_mingw\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/MonitorClient.dir/MonitorClient.obj"
-	C:\msys64\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/MonitorClient.dir/MonitorClient.obj -MF CMakeFiles\MonitorClient.dir\MonitorClient.obj.d -o CMakeFiles\MonitorClient.dir\MonitorClient.obj -c "C:\Users\Ramses Lee\monitoring\Windows\MonitorClient.cpp"
+CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj: CMakeFiles/MonitorClient.dir/flags.make
+CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj: CMakeFiles/MonitorClient.dir/includes_CXX.rsp
+CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj: C:/Users/Ramses\ Lee/monitoring/Windows/MonitorClient.cpp
+CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj: CMakeFiles/MonitorClient.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="C:\Users\Ramses Lee\monitoring\build_mingw\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj"
+	C:\msys64\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj -MF CMakeFiles\MonitorClient.dir\MonitorClient.cpp.obj.d -o CMakeFiles\MonitorClient.dir\MonitorClient.cpp.obj -c "C:\Users\Ramses Lee\monitoring\Windows\MonitorClient.cpp"
 
-CMakeFiles/MonitorClient.dir/MonitorClient.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/MonitorClient.dir/MonitorClient.i"
-	C:\msys64\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "C:\Users\Ramses Lee\monitoring\Windows\MonitorClient.cpp" > CMakeFiles\MonitorClient.dir\MonitorClient.i
+CMakeFiles/MonitorClient.dir/MonitorClient.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/MonitorClient.dir/MonitorClient.cpp.i"
+	C:\msys64\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "C:\Users\Ramses Lee\monitoring\Windows\MonitorClient.cpp" > CMakeFiles\MonitorClient.dir\MonitorClient.cpp.i
 
-CMakeFiles/MonitorClient.dir/MonitorClient.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/MonitorClient.dir/MonitorClient.s"
-	C:\msys64\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "C:\Users\Ramses Lee\monitoring\Windows\MonitorClient.cpp" -o CMakeFiles\MonitorClient.dir\MonitorClient.s
+CMakeFiles/MonitorClient.dir/MonitorClient.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/MonitorClient.dir/MonitorClient.cpp.s"
+	C:\msys64\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "C:\Users\Ramses Lee\monitoring\Windows\MonitorClient.cpp" -o CMakeFiles\MonitorClient.dir\MonitorClient.cpp.s
 
 # Object files for target MonitorClient
 MonitorClient_OBJECTS = \
-"CMakeFiles/MonitorClient.dir/MonitorClient.obj"
+"CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj"
 
 # External object files for target MonitorClient
 MonitorClient_EXTERNAL_OBJECTS =
 
-MonitorClient.exe: CMakeFiles/MonitorClient.dir/MonitorClient.obj
+MonitorClient.exe: CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj
 MonitorClient.exe: CMakeFiles/MonitorClient.dir/build.make
 MonitorClient.exe: C:/msys64/mingw64/lib/libsqlite3.dll.a
 MonitorClient.exe: C:/msys64/mingw64/lib/libjsoncpp.dll.a

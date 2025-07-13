@@ -161,7 +161,7 @@ CMAKE_PROJECT_DESCRIPTION:STATIC=
 CMAKE_PROJECT_HOMEPAGE_URL:STATIC=
 
 //Value Computed by CMake
-CMAKE_PROJECT_NAME:STATIC=Project
+CMAKE_PROJECT_NAME:STATIC=MonitorClient
 
 //Path to a program.
 CMAKE_RANLIB:FILEPATH=C:/msys64/mingw64/bin/ranlib.exe
@@ -254,6 +254,15 @@ JSONCPP_LIBRARY:FILEPATH=C:/msys64/mingw64/lib/libjsoncpp.dll.a
 
 //Single output directory for building all libraries.
 LIBRARY_OUTPUT_PATH:PATH=
+
+//Value Computed by CMake
+MonitorClient_BINARY_DIR:STATIC=C:/Users/Ramses Lee/monitoring/build_mingw
+
+//Value Computed by CMake
+MonitorClient_IS_TOP_LEVEL:STATIC=ON
+
+//Value Computed by CMake
+MonitorClient_SOURCE_DIR:STATIC=C:/Users/Ramses Lee/monitoring/Windows
 
 //Arguments to supply to pkg-config
 PKG_CONFIG_ARGN:STRING=

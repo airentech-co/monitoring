@@ -1,0 +1,7 @@
+C:/Users/Ramses Lee/monitoring/Windows/build_cmake/CMakeFiles/MonitorClient.dir
+C:/Users/Ramses Lee/monitoring/Windows/build_cmake/CMakeFiles/edit_cache.dir
+C:/Users/Ramses Lee/monitoring/Windows/build_cmake/CMakeFiles/rebuild_cache.dir
+C:/Users/Ramses Lee/monitoring/Windows/build_cmake/CMakeFiles/list_install_components.dir
+C:/Users/Ramses Lee/monitoring/Windows/build_cmake/CMakeFiles/install.dir
+C:/Users/Ramses Lee/monitoring/Windows/build_cmake/CMakeFiles/install/local.dir
+C:/Users/Ramses Lee/monitoring/Windows/build_cmake/CMakeFiles/install/strip.dir

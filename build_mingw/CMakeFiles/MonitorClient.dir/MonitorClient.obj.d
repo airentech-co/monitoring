@@ -201,7 +201,8 @@ CMakeFiles/MonitorClient.dir/MonitorClient.obj: \
  C:/msys64/mingw64/include/sec_api/stralign_s.h \
  C:/msys64/mingw64/include/winsvc.h C:/msys64/mingw64/include/mcx.h \
  C:/msys64/mingw64/include/imm.h C:/msys64/mingw64/include/wininet.h \
- C:/msys64/mingw64/include/objidl.h C:/msys64/mingw64/include/rpc.h \
+ C:/msys64/mingw64/include/shellapi.h \
+ C:/msys64/mingw64/include/shobjidl.h C:/msys64/mingw64/include/rpc.h \
  C:/msys64/mingw64/include/rpcdce.h C:/msys64/mingw64/include/rpcdcep.h \
  C:/msys64/mingw64/include/rpcnsi.h C:/msys64/mingw64/include/rpcnterr.h \
  C:/msys64/mingw64/include/rpcasync.h C:/msys64/mingw64/include/rpcndr.h \
@@ -211,11 +212,21 @@ CMakeFiles/MonitorClient.dir/MonitorClient.obj: \
  C:/msys64/mingw64/include/wtypesbase.h \
  C:/msys64/mingw64/include/unknwnbase.h \
  C:/msys64/mingw64/include/objidlbase.h C:/msys64/mingw64/include/cguid.h \
- C:/msys64/mingw64/include/unknwn.h C:/msys64/mingw64/include/wtypes.h \
- C:/msys64/mingw64/include/urlmon.h C:/msys64/mingw64/include/oleidl.h \
- C:/msys64/mingw64/include/servprov.h C:/msys64/mingw64/include/msxml.h \
- C:/msys64/mingw64/include/oaidl.h C:/msys64/mingw64/include/propidl.h \
- C:/msys64/mingw64/include/oleauto.h C:/msys64/mingw64/include/gdiplus.h \
+ C:/msys64/mingw64/include/objidl.h C:/msys64/mingw64/include/unknwn.h \
+ C:/msys64/mingw64/include/wtypes.h C:/msys64/mingw64/include/urlmon.h \
+ C:/msys64/mingw64/include/oleidl.h C:/msys64/mingw64/include/servprov.h \
+ C:/msys64/mingw64/include/msxml.h C:/msys64/mingw64/include/oaidl.h \
+ C:/msys64/mingw64/include/propidl.h C:/msys64/mingw64/include/oleauto.h \
+ C:/msys64/mingw64/include/docobj.h C:/msys64/mingw64/include/ocidl.h \
+ C:/msys64/mingw64/include/shtypes.h C:/msys64/mingw64/include/comcat.h \
+ C:/msys64/mingw64/include/prsht.h C:/msys64/mingw64/include/propsys.h \
+ C:/msys64/mingw64/include/structuredquerycondition.h \
+ C:/msys64/mingw64/include/propkeydef.h \
+ C:/msys64/mingw64/include/objectarray.h \
+ C:/msys64/mingw64/include/sherrors.h \
+ C:/msys64/mingw64/include/commctrl.h \
+ C:/msys64/mingw64/include/propvarutil.h \
+ C:/msys64/mingw64/include/shlwapi.h C:/msys64/mingw64/include/gdiplus.h \
  C:/msys64/mingw64/include/gdiplus/gdiplus.h \
  C:/msys64/mingw64/include/c++/14.2.0/math.h \
  C:/msys64/mingw64/include/c++/14.2.0/cmath \
@@ -284,22 +295,15 @@ CMakeFiles/MonitorClient.dir/MonitorClient.obj: \
  C:/msys64/mingw64/include/gdiplus/gdiplusimpl.h \
  C:/msys64/mingw64/include/psapi.h C:/msys64/mingw64/include/tlhelp32.h \
  C:/msys64/mingw64/include/setupapi.h \
- C:/msys64/mingw64/include/commctrl.h C:/msys64/mingw64/include/prsht.h \
  C:/msys64/mingw64/include/devpropdef.h \
  C:/msys64/mingw64/include/devguid.h C:/msys64/mingw64/include/regstr.h \
  C:/msys64/mingw64/include/shlobj.h C:/msys64/mingw64/include/wincrypt.h \
  C:/msys64/mingw64/include/bcrypt.h C:/msys64/mingw64/include/ncrypt.h \
  C:/msys64/mingw64/include/dpapi.h C:/msys64/mingw64/include/shlguid.h \
  C:/msys64/mingw64/include/isguids.h C:/msys64/mingw64/include/exdisp.h \
- C:/msys64/mingw64/include/ocidl.h C:/msys64/mingw64/include/docobj.h \
  C:/msys64/mingw64/include/shldisp.h \
  C:/msys64/mingw64/include/knownfolders.h \
- C:/msys64/mingw64/include/shtypes.h C:/msys64/mingw64/include/shobjidl.h \
- C:/msys64/mingw64/include/comcat.h C:/msys64/mingw64/include/propsys.h \
- C:/msys64/mingw64/include/structuredquerycondition.h \
- C:/msys64/mingw64/include/propkeydef.h \
- C:/msys64/mingw64/include/objectarray.h \
- C:/msys64/mingw64/include/sherrors.h C:/msys64/mingw64/include/sqlite3.h \
+ C:/msys64/mingw64/include/sqlite3.h \
  C:/msys64/mingw64/include/json/json.h \
  C:/msys64/mingw64/include/json/config.h \
  C:/msys64/mingw64/include/c++/14.2.0/cstddef \

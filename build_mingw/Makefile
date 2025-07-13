@@ -173,20 +173,29 @@ MonitorClient/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/build
 .PHONY : MonitorClient/fast
 
-# target to build an object file
-MonitorClient.obj:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/MonitorClient.obj
+MonitorClient.obj: MonitorClient.cpp.obj
 .PHONY : MonitorClient.obj
 
-# target to preprocess a source file
-MonitorClient.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/MonitorClient.i
+# target to build an object file
+MonitorClient.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/MonitorClient.cpp.obj
+.PHONY : MonitorClient.cpp.obj
+
+MonitorClient.i: MonitorClient.cpp.i
 .PHONY : MonitorClient.i
 
-# target to generate assembly for a file
-MonitorClient.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/MonitorClient.s
+# target to preprocess a source file
+MonitorClient.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/MonitorClient.cpp.i
+.PHONY : MonitorClient.cpp.i
+
+MonitorClient.s: MonitorClient.cpp.s
 .PHONY : MonitorClient.s
+
+# target to generate assembly for a file
+MonitorClient.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\MonitorClient.dir\build.make CMakeFiles/MonitorClient.dir/MonitorClient.cpp.s
+.PHONY : MonitorClient.cpp.s
 
 # Help Target
 help:
