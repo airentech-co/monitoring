@@ -1,9 +1,9 @@
-"/Volumes/Works/reserch/monitoring-mac/MonitorClient/AppDelegate.swift":
-  swiftdoc: "/Volumes/Works/reserch/monitoring-mac/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient.swiftdoc"
-  swiftsourceinfo: "/Volumes/Works/reserch/monitoring-mac/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient.swiftsourceinfo"
-  diagnostics: "/Volumes/Works/reserch/monitoring-mac/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient-master.dia"
-  dependencies: "/Volumes/Works/reserch/monitoring-mac/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient-master.d"
-  objc-header: "/Volumes/Works/reserch/monitoring-mac/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient-Swift.h"
-  abi-baseline-json: "/Volumes/Works/reserch/monitoring-mac/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient.abi.json"
-  const-values: "/Volumes/Works/reserch/monitoring-mac/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient-master.swiftconstvalues"
-  swiftmodule: "/Volumes/Works/reserch/monitoring-mac/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient.swiftmodule"
+"/Volumes/Works/reserch/monitoring/MacOS/MonitorClient/AppDelegate.swift":
+  swiftdoc: "/Volumes/Works/reserch/monitoring/MacOS/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient.swiftdoc"
+  swiftsourceinfo: "/Volumes/Works/reserch/monitoring/MacOS/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient.swiftsourceinfo"
+  const-values: "/Volumes/Works/reserch/monitoring/MacOS/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient-master.swiftconstvalues"
+  diagnostics: "/Volumes/Works/reserch/monitoring/MacOS/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient-master.dia"
+  abi-baseline-json: "/Volumes/Works/reserch/monitoring/MacOS/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient.abi.json"
+  dependencies: "/Volumes/Works/reserch/monitoring/MacOS/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient-master.d"
+  swiftmodule: "/Volumes/Works/reserch/monitoring/MacOS/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient.swiftmodule"
+  objc-header: "/Volumes/Works/reserch/monitoring/MacOS/build/Build/Intermediates.noindex/MonitorClient.build/Release/MonitorClient.build/Objects-normal/x86_64/MonitorClient-Swift.h"

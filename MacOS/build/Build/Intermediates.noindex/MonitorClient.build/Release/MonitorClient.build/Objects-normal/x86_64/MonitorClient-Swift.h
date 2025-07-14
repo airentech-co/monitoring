@@ -312,6 +312,8 @@ SWIFT_CLASS("_TtC13MonitorClient11AppDelegate")
 - (void)applicationDidFinishLaunching:(NSNotification * _Nonnull)aNotification;
 - (void)sessionDidBecomeActiveWithNotification:(NSNotification * _Nonnull)notification;
 - (void)sessionDidResignActiveWithNotification:(NSNotification * _Nonnull)notification;
+- (void)flushLogsPeriodically;
+- (void)performStartupTests;
 - (void)checkAllTasks;
 - (void)sendBrowserHistories;
 - (void)checkMonitorChecker;
