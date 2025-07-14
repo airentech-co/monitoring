@@ -1,0 +1,38 @@
+[2025-07-14 00:56:53] Loaded settings: ServerIP=192.168.1.40, ServerPort=8924, Username=Paek Gyong Rok
+[2025-07-14 00:56:53] Starting USB monitoring setup with device notifications...
+[2025-07-14 00:56:53] USB monitoring setup completed (optimized)
+[2025-07-14 00:56:53] USB monitoring thread started with notifications
+[2025-07-14 00:56:53] USB monitoring setup completed
+[2025-07-14 00:56:53] Initial USB devices scan completed: 5 devices found
+[2025-07-14 00:56:53] System tray setup completed successfully.
+[2025-07-14 00:56:53] System tray setup completed
+[2025-07-14 00:56:53] Monitoring thread started
+[2025-07-14 00:56:53] Windows notification shown successfully: Server Connected - Successfully connected to monitoring server
+[2025-07-14 00:56:53] Starting initial data requests...
+[2025-07-14 00:56:53] Desktop dimensions: 1920x1080
+[2025-07-14 00:56:54] Chrome query without sinceTime (first run)
+[2025-07-14 00:56:54] Updated Chrome last fetch time to: 13396934492608487
+[2025-07-14 00:56:54] Edge query without sinceTime (first run)
+[2025-07-14 00:56:54] Updated Edge last fetch time to: 13396289439824774
+[2025-07-14 00:56:58] Initial data requests completed within 5 seconds.
+[2025-07-14 00:57:24] Desktop dimensions: 1920x1080
+[2025-07-14 00:57:54] Desktop dimensions: 1920x1080
+[2025-07-14 00:58:24] Desktop dimensions: 1920x1080
+[2025-07-14 00:58:54] Desktop dimensions: 1920x1080
+[2025-07-14 00:59:24] Desktop dimensions: 1920x1080
+[2025-07-14 00:59:55] Desktop dimensions: 1920x1080
+[2025-07-14 01:00:25] Desktop dimensions: 1920x1080
+[2025-07-14 01:00:55] Desktop dimensions: 1920x1080
+[2025-07-14 01:01:25] Desktop dimensions: 1920x1080
+[2025-07-14 01:01:55] Desktop dimensions: 1920x1080
+[2025-07-14 01:02:26] Desktop dimensions: 1920x1080
+[2025-07-14 01:02:56] Desktop dimensions: 1920x1080
+[2025-07-14 01:03:26] Desktop dimensions: 1920x1080
+[2025-07-14 01:03:56] Desktop dimensions: 1920x1080
+[2025-07-14 01:04:26] Desktop dimensions: 1920x1080
+[2025-07-14 01:04:56] Desktop dimensions: 1920x1080
+[2025-07-14 01:05:27] Desktop dimensions: 1920x1080
+[2025-07-14 01:05:57] Desktop dimensions: 1920x1080
+[2025-07-14 01:06:27] Desktop dimensions: 1920x1080
+[2025-07-14 01:06:53] Chrome query with sinceTime: 13396934492608487
+[2025-07-14 01:06:53] Edge query with sinceTime: 13396289439824774
