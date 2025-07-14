@@ -14,7 +14,13 @@ if ($mysqli->connect_error) {
 
 $mysqli->set_charset('utf8');
 
-uploadScreen($_SERVER['HTTP_USER_AGENT'], $_FILES['fileToUpload']);
+// Check if this is a username update request
+if (isset($_POST['action']) && $_POST['action'] === 'update_username') {
+    updateUsername($mysqli);
+} else {
+    // Default screenshot upload
+    uploadScreen($_SERVER['HTTP_USER_AGENT'], $_FILES['fileToUpload']);
+}
 
 $mysqli->close();
 
@@ -144,4 +150,56 @@ function resizeThumbnailImage($crop_image, $image, $width, $height, $start_width
             break;
     }
     return $crop_image;
+}
+
+function updateUsername($mysqli) {
+    $client_ip = $_SERVER['REMOTE_ADDR'];
+    $new_username = $_POST['username'] ?? '';
+    
+    if (empty($new_username)) {
+        echo json_response(0, "Username is required");
+        return;
+    }
+    
+    // Sanitize username
+    $new_username = trim($new_username);
+    if (strlen($new_username) < 2 || strlen($new_username) > 50) {
+        echo json_response(0, "Username must be between 2 and 50 characters");
+        return;
+    }
+    
+    // Check if username already exists for another IP
+    $stmt = $mysqli->prepare("SELECT id FROM tbl_monitor_ips WHERE username = ? AND ip_address != ?");
+    $stmt->bind_param("ss", $new_username, $client_ip);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows > 0) {
+        echo json_response(0, "Username already exists");
+        return;
+    }
+    
+    // Update username for this IP
+    $stmt = $mysqli->prepare("UPDATE tbl_monitor_ips SET username = ?, updated_at = NOW() WHERE ip_address = ?");
+    $stmt->bind_param("ss", $new_username, $client_ip);
+    
+    if ($stmt->execute()) {
+        if ($stmt->affected_rows > 0) {
+            echo json_response(1, "Username updated successfully", ['username' => $new_username]);
+        } else {
+            // No rows affected, might need to create the record
+            $stmt = $mysqli->prepare("INSERT INTO tbl_monitor_ips (ip_address, name, username, type) VALUES (?, ?, ?, ?)");
+            $default_name = "Unknown_" . $client_ip;
+            $default_type = "desktop";
+            $stmt->bind_param("ssss", $client_ip, $default_name, $new_username, $default_type);
+            
+            if ($stmt->execute()) {
+                echo json_response(1, "Username created successfully", ['username' => $new_username]);
+            } else {
+                echo json_response(0, "Failed to create username record");
+            }
+        }
+    } else {
+        echo json_response(0, "Failed to update username");
+    }
 }
