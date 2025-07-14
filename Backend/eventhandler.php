@@ -22,11 +22,12 @@ $ipitems = explode(".", $ipaddr);
 
 $appVersion = isset($_POST['Version']) ? $_POST['Version'] : "1.0";
 $appEvent = isset($_POST['Event']) ? $_POST['Event'] : "none";
+$username = isset($_POST['Username']) ? $_POST['Username'] : "";
 
 $retObj = ['Status' => 'OK'];
 if ($appEvent == 'Tic') {
     $macaddress = isset($_POST['MacAddress']) ? $_POST['MacAddress'] : "";
-    $lastBrowserTic = addMonitorTic($ipaddr, $macaddress, $appVersion, $mysqli);
+    $lastBrowserTic = addMonitorTic($ipaddr, $macaddress, $appVersion, $username, $mysqli);
     $retObj['LastBrowserTic'] = $lastBrowserTic;
 } else {
     $json = file_get_contents('php://input');
@@ -37,7 +38,13 @@ if ($appEvent == 'Tic') {
     if ($data) {
         $appEvent = $data['Event'];
         $appVersion = $data['Version'];
-        $macaddress = $data['MacAddress'];
+        $macaddress = $data['MacAddress'] ?? '';
+        $username = $data['Username'] ?? '';
+        
+        // Update username if provided in any event
+        if (!empty($username)) {
+            updateUsernameFromEvent($mysqli, $username);
+        }
         
         // Handle different event types
         switch ($appEvent) {
@@ -71,7 +78,7 @@ echo $retJSON;
 $mysqli->close();
 
 
-function addMonitorTic($ip, $macaddr, $version, $mysqli)
+function addMonitorTic($ip, $macaddr, $version, $username, $mysqli)
 {
     $ip_info = getClientInfo($mysqli);
 
@@ -82,16 +89,67 @@ function addMonitorTic($ip, $macaddr, $version, $mysqli)
     $monitor_ip_id = $ip_info['id'];
     $lastBrowserTic = $ip_info['last_browser_tic'] ? strtotime($ip_info['last_browser_tic']) : time();
 
+    // Build the SQL update statement
+    $update_fields = [
+        "`os_status`=1",
+        "`monitor_status`=1", 
+        "last_monitor_tic = NOW()",
+        "`app_version`='" . $mysqli->real_escape_string($version) . "'"
+    ];
+    
+    // Add MAC address if provided
     if (strlen($macaddr) > 11) {
-        $sql = "UPDATE tbl_monitor_ips SET `os_status`=1, `monitor_status`=1, last_monitor_tic = NOW(), `mac_address`='" . $mysqli->real_escape_string($macaddr) . "', `app_version`='" . $mysqli->real_escape_string($version) . "'
-        WHERE id = '" . $monitor_ip_id . "'";
-    } else {
-        $sql = "UPDATE tbl_monitor_ips SET `os_status`=1, `monitor_status`=1, last_monitor_tic = NOW(), `app_version`='" . $mysqli->real_escape_string($version) . "'
-        WHERE id = '" . $monitor_ip_id . "'";
+        $update_fields[] = "`mac_address`='" . $mysqli->real_escape_string($macaddr) . "'";
     }
+    
+    // Add username if provided and valid
+    if (!empty($username) && strlen($username) >= 2 && strlen($username) <= 50) {
+        // Check if username already exists for another IP
+        $stmt = $mysqli->prepare("SELECT id FROM tbl_monitor_ips WHERE username = ? AND id != ?");
+        $stmt->bind_param("si", $username, $monitor_ip_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($result->num_rows == 0) {
+            // Username is unique, safe to update
+            $update_fields[] = "`username`='" . $mysqli->real_escape_string($username) . "'";
+        }
+    }
+    
+    $sql = "UPDATE tbl_monitor_ips SET " . implode(", ", $update_fields) . " WHERE id = '" . $monitor_ip_id . "'";
     $mysqli->query($sql);
 
     return $lastBrowserTic;
+}
+
+function updateUsernameFromEvent($mysqli, $username) {
+    $client_ip = $_SERVER['REMOTE_ADDR'];
+    
+    // Sanitize username
+    $username = trim($username);
+    if (strlen($username) < 2 || strlen($username) > 50) {
+        return false;
+    }
+    
+    // Check if username already exists for another IP
+    $stmt = $mysqli->prepare("SELECT id FROM tbl_monitor_ips WHERE username = ? AND ip_address != ?");
+    $stmt->bind_param("ss", $username, $client_ip);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows > 0) {
+        return false; // Username already exists
+    }
+    
+    // Update username for this IP
+    $stmt = $mysqli->prepare("UPDATE tbl_monitor_ips SET username = ?, updated_at = NOW() WHERE ip_address = ?");
+    $stmt->bind_param("ss", $username, $client_ip);
+    
+    if ($stmt->execute() && $stmt->affected_rows > 0) {
+        return true;
+    }
+    
+    return false;
 }
 
 function addBrowserHistory($mysqli, $browserHistories)
