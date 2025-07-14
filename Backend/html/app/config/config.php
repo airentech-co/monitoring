@@ -2,7 +2,7 @@
 // Database configuration
 define('DB_HOST', 'localhost');
 define('DB_USER', 'root');
-define('DB_PASS', 'acc_monitor');
+define('DB_PASS', 'acc0924');
 define('DB_NAME', 'monitoring_db');
 
 // Application configuration
