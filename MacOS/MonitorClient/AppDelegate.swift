@@ -383,8 +383,41 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
             logMessage("Server IP already configured: \(storage.string(forKey: "server-ip") ?? "unknown")", level: .info)
         }
         
-        // Reset accessibility prompt flag on startup
-        storage.removeObject(forKey: "accessibility-prompt-shown")
+        // Only reset accessibility prompt flag if permission was revoked
+        let wasPreviouslyGranted = storage.bool(forKey: "accessibility-was-granted")
+        let currentPermissionGranted = AXIsProcessTrusted()
+        
+        if wasPreviouslyGranted && !currentPermissionGranted {
+            // Permission was revoked, reset the prompt flag so we can show instructions again
+            storage.removeObject(forKey: "accessibility-prompt-shown")
+            logMessage("Accessibility permission was revoked, resetting prompt flag", level: .warning)
+        } else if !wasPreviouslyGranted && currentPermissionGranted {
+            // Permission was newly granted, update the flag
+            storage.set(true, forKey: "accessibility-was-granted")
+            logMessage("Accessibility permission newly granted", level: .info)
+        }
+        
+        // Log current permission status
+        logMessage("Accessibility permission status: \(currentPermissionGranted ? "GRANTED" : "DENIED") (was previously granted: \(wasPreviouslyGranted))", level: .info)
+        
+        // Check screen recording permission status on startup
+        if #available(macOS 10.15, *) {
+            let screenRecordingWasGranted = storage.bool(forKey: "screen-recording-was-granted")
+            let screenRecordingCurrentGranted = CGPreflightScreenCaptureAccess()
+            
+            if screenRecordingWasGranted && !screenRecordingCurrentGranted {
+                // Permission was revoked, reset the prompt flag so we can show instructions again
+                storage.removeObject(forKey: "screen-recording-prompt-shown")
+                logMessage("Screen recording permission was revoked, resetting prompt flag", level: .warning)
+            } else if !screenRecordingWasGranted && screenRecordingCurrentGranted {
+                // Permission was newly granted, update the flag
+                storage.set(true, forKey: "screen-recording-was-granted")
+                logMessage("Screen recording permission newly granted", level: .info)
+            }
+            
+            // Log current screen recording permission status
+            logMessage("Screen recording permission status: \(screenRecordingCurrentGranted ? "GRANTED" : "DENIED") (was previously granted: \(screenRecordingWasGranted))", level: .info)
+        }
 
         APP_VERSION = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
 
@@ -522,7 +555,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         // Test 2: Screenshot capability
         logMessage("Test 2: Taking screenshot for permission verification", level: .info)
         DispatchQueue.global(qos: .background).async {
-            self.TakeScreenShotsAndPost()
+            // Check screen recording permission first
+            if self.isScreenRecordingEnabled() {
+                self.TakeScreenShotsAndPost()
+            } else {
+                self.logMessage("Screen recording permission not granted - requesting...", level: .warning)
+                self.requestScreenRecordingPermission()
+            }
         }
         
         // Test 3: Browser history collection
@@ -577,12 +616,108 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         // Consider system active if there was any input in the last 5 minutes
         return lastKeyActivity < 300 || lastMouseActivity < 300
     }
+    
+    // Check if screen recording permission is granted
+    private func isScreenRecordingEnabled() -> Bool {
+        if #available(macOS 10.15, *) {
+            return CGPreflightScreenCaptureAccess()
+        } else {
+            // Fallback for older macOS versions
+            return true
+        }
+    }
+    
+    // Request screen recording permission
+    private func requestScreenRecordingPermission() {
+        if #available(macOS 10.15, *) {
+            // Check if we already have permission
+            if CGPreflightScreenCaptureAccess() {
+                logMessage("Screen recording permission already granted", level: .info)
+                storage.set(true, forKey: "screen-recording-was-granted")
+                return
+            }
+            
+            // Check if permission was previously granted
+            let wasPreviouslyGranted = storage.bool(forKey: "screen-recording-was-granted")
+            
+            // Only prompt once per session to avoid spam, unless permission was revoked
+            let promptKey = "screen-recording-prompt-shown"
+            if storage.bool(forKey: promptKey) && !wasPreviouslyGranted {
+                logMessage("Screen recording prompt already shown this session and permission was never granted, skipping", level: .info)
+                return
+            }
+            
+            logMessage("Requesting screen recording permission...", level: .info)
+            
+            // Show detailed notification based on previous state
+            let notification = NSUserNotification()
+            notification.title = "MonitorClient - Screen Recording Permission Required"
+            
+            if wasPreviouslyGranted {
+                // App was previously granted but permission was revoked
+                notification.informativeText = """
+                Screen recording permission was revoked. To restore monitoring:
+                
+                1. Open System Preferences > Security & Privacy > Privacy > Screen Recording
+                2. Find "MonitorClient" in the list
+                3. Click the "-" button to remove it
+                4. Click the "+" button and add MonitorClient again
+                5. Restart the MonitorClient app
+                
+                This will restore screenshot monitoring functionality.
+                """
+                logMessage("Screen recording permission was previously granted but has been revoked", level: .warning)
+            } else {
+                // First time requesting permission
+                notification.informativeText = """
+                MonitorClient needs screen recording permission to capture screenshots.
+                
+                To grant permission:
+                1. Open System Preferences > Security & Privacy > Privacy > Screen Recording
+                2. Click the lock icon and enter your password
+                3. Click the "+" button and add MonitorClient
+                4. Check the box next to MonitorClient
+                5. Restart the MonitorClient app
+                
+                Without this permission, screenshot monitoring will not work.
+                """
+                logMessage("First time requesting screen recording permission", level: .info)
+            }
+            
+            notification.soundName = NSUserNotificationDefaultSoundName
+            NSUserNotificationCenter.default.deliver(notification)
+            
+            // Request permission
+            CGRequestScreenCaptureAccess()
+            
+            // Check if permission was granted after request
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                if CGPreflightScreenCaptureAccess() {
+                    self.logMessage("Screen recording permission granted", level: .info)
+                    self.storage.set(true, forKey: "screen-recording-was-granted")
+                    // Clear the prompt flag when permission is granted so we can show it again if revoked
+                    self.storage.removeObject(forKey: promptKey)
+                } else {
+                    self.logMessage("Screen recording permission denied - detailed instructions sent via notification", level: .warning)
+                    // Mark that we've shown the prompt (only if denied)
+                    self.storage.set(true, forKey: promptKey)
+                }
+            }
+            
+            logMessage("Screen recording permission request sent", level: .info)
+        } else {
+            logMessage("Screen recording permission not required on this macOS version", level: .info)
+        }
+    }
 
     @objc func checkAllTasks() {
         let currentDate = Date()
         
         // Check accessibility permission periodically
         checkAccessibilityPermissionPeriodically()
+        
+        // Check screen recording permission periodically
+        checkScreenRecordingPermissionPeriodically()
         
         // Add event tap validation check to main timer loop
         checkAndReestablishEventTapThrottled()
@@ -1459,6 +1594,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
     @objc func TakeScreenShotsAndPost() {
         logMonitoringEvent("Starting screenshot capture")
         
+        // Check screen recording permission first
+        if !isScreenRecordingEnabled() {
+            logError("Screen recording permission not granted", context: "Screenshot")
+            requestScreenRecordingPermission()
+            return
+        }
+        
         // Use CGWindowListCreateImage for screenshot capture (available in macOS 14.0)
         let displayCount = NSScreen.screens.count
         
@@ -2093,16 +2235,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         // First check if we already have permission without prompting
         if AXIsProcessTrusted() {
             logMessage("Accessibility permission already granted", level: .info)
+            storage.set(true, forKey: "accessibility-was-granted")
             return
         }
         
         // Check if permission was previously granted
         let wasPreviouslyGranted = storage.bool(forKey: "accessibility-was-granted")
         
-        // Only prompt once per session to avoid spam
+        // Only prompt once per session to avoid spam, unless permission was revoked
         let promptKey = "accessibility-prompt-shown"
-        if storage.bool(forKey: promptKey) {
-            logMessage("Accessibility prompt already shown this session, skipping", level: .info)
+        if storage.bool(forKey: promptKey) && !wasPreviouslyGranted {
+            logMessage("Accessibility prompt already shown this session and permission was never granted, skipping", level: .info)
             return
         }
         
@@ -2155,12 +2298,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         if trusted {
             logMessage("Accessibility permission granted", level: .info)
             storage.set(true, forKey: "accessibility-was-granted")
+            // Clear the prompt flag when permission is granted so we can show it again if revoked
+            storage.removeObject(forKey: promptKey)
         } else {
             logMessage("Accessibility permission denied - detailed instructions sent via notification", level: .warning)
+            // Mark that we've shown the prompt (only if denied)
+            storage.set(true, forKey: promptKey)
         }
-        
-        // Mark that we've shown the prompt
-        storage.set(true, forKey: promptKey)
     }
     
     private func isInputMonitoringEnabled() -> Bool {
@@ -2641,6 +2785,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         requestAccessibilityPermission()
     }
     
+    // Reset screen recording permissions for testing
+    @objc func resetScreenRecordingPermissions() {
+        logMessage("Resetting screen recording permission flags", level: .info)
+        storage.removeObject(forKey: "screen-recording-prompt-shown")
+        storage.removeObject(forKey: "last-screen-recording-check")
+        storage.removeObject(forKey: "last-screen-recording-notification")
+        logMessage("Screen recording permission flags reset", level: .info)
+    }
+    
+    // Force request screen recording permission
+    @objc func forceRequestScreenRecordingPermission() {
+        logMessage("Force requesting screen recording permission", level: .info)
+        storage.removeObject(forKey: "screen-recording-prompt-shown")
+        requestScreenRecordingPermission()
+    }
+    
     // Open System Preferences to Accessibility settings
     @objc func openAccessibilityPreferences() {
         logMessage("Opening System Settings to Accessibility settings", level: .info)
@@ -2737,31 +2897,178 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         NSUserNotificationCenter.default.deliver(notification)
     }
     
+    // Open System Preferences to Screen Recording settings
+    @objc func openScreenRecordingPreferences() {
+        logMessage("Opening System Settings to Screen Recording settings", level: .info)
+        
+        // Try multiple approaches to open System Settings
+        let approaches = [
+            // Approach 1: Direct URL scheme (works on macOS 13+)
+            { () -> Bool in
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                    NSWorkspace.shared.open(url)
+                    return true
+                }
+                return false
+            },
+            
+            // Approach 2: Try System Settings (macOS 13+)
+            { () -> Bool in
+                let script = """
+                tell application "System Settings"
+                    activate
+                    set current pane to pane id "com.apple.preference.security"
+                    reveal anchor "Privacy_ScreenCapture"
+                end tell
+                """
+                
+                if let scriptObject = NSAppleScript(source: script) {
+                    var error: NSDictionary?
+                    scriptObject.executeAndReturnError(&error)
+                    
+                    if error == nil {
+                        return true
+                    }
+                }
+                return false
+            },
+            
+            // Approach 3: Try System Preferences (older macOS)
+            { () -> Bool in
+                let script = """
+                tell application "System Preferences"
+                    activate
+                    set current pane to pane id "com.apple.preference.security"
+                    reveal anchor "Privacy_ScreenCapture"
+                end tell
+                """
+                
+                if let scriptObject = NSAppleScript(source: script) {
+                    var error: NSDictionary?
+                    scriptObject.executeAndReturnError(&error)
+                    
+                    if error == nil {
+                        return true
+                    }
+                }
+                return false
+            },
+            
+            // Approach 4: Just open System Settings/Preferences
+            { () -> Bool in
+                // Try System Settings first (macOS 13+)
+                if NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:")!) {
+                    return true
+                }
+                
+                // Fallback to System Preferences
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security") {
+                    NSWorkspace.shared.open(url)
+                    return true
+                }
+                
+                return false
+            }
+        ]
+        
+        // Try each approach
+        for (index, approach) in approaches.enumerated() {
+            if approach() {
+                logMessage("Successfully opened System Settings using approach \(index + 1)", level: .info)
+                return
+            }
+        }
+        
+        // If all approaches fail, provide manual instructions
+        logMessage("Failed to open System Settings automatically", level: .warning)
+        logMessage("Please manually open System Settings > Privacy & Security > Screen Recording", level: .info)
+        logMessage("Then add this app to the Screen Recording list", level: .info)
+        
+        // Show a user notification with manual instructions
+        let notification = NSUserNotification()
+        notification.title = "Manual Screen Recording Setup Required"
+        notification.informativeText = "Please open System Settings > Privacy & Security > Screen Recording and add this app"
+        notification.soundName = NSUserNotificationDefaultSoundName
+        
+        NSUserNotificationCenter.default.deliver(notification)
+    }
+    
     // Check accessibility permission periodically and request if needed
     private func checkAccessibilityPermissionPeriodically() {
-        // Check every 5 minutes (optimized from 30 seconds)
+        // Check every 15 minutes (increased from 5 minutes to reduce annoyance)
         let lastCheck = storage.double(forKey: "last-accessibility-check")
         let currentTime = Date().timeIntervalSince1970
         
-        if currentTime - lastCheck > 300 {
+        if currentTime - lastCheck > 900 { // 15 minutes
             storage.set(currentTime, forKey: "last-accessibility-check")
             
             if !isInputMonitoringEnabled() {
-                logMessage("Periodic accessibility check: permission not granted, requesting...", level: .info)
+                // Only show notification if we haven't shown it recently
+                let lastNotificationTime = storage.double(forKey: "last-accessibility-notification")
+                if currentTime - lastNotificationTime > 3600 { // Only show notification once per hour
+                    logMessage("Periodic accessibility check: permission not granted, showing notification...", level: .info)
+                    
+                    // Show user notification about accessibility permission
+                    let notification = NSUserNotification()
+                    notification.title = "MonitorClient Needs Accessibility Permission"
+                    notification.informativeText = "Please grant accessibility permission to enable keyboard monitoring"
+                    notification.soundName = NSUserNotificationDefaultSoundName
+                    notification.actionButtonTitle = "Open Settings"
+                    notification.otherButtonTitle = "Later"
+                    
+                    NSUserNotificationCenter.default.deliver(notification)
+                    
+                    storage.set(currentTime, forKey: "last-accessibility-notification")
+                }
                 
-                // Show user notification about accessibility permission
-                let notification = NSUserNotification()
-                notification.title = "MonitorClient Needs Accessibility Permission"
-                notification.informativeText = "Please grant accessibility permission to enable keyboard monitoring"
-                notification.soundName = NSUserNotificationDefaultSoundName
-                notification.actionButtonTitle = "Open Settings"
-                notification.otherButtonTitle = "Later"
-                
-                NSUserNotificationCenter.default.deliver(notification)
-                
-                requestAccessibilityPermission()
+                // Only request permission if it was previously granted (revoked case)
+                let wasPreviouslyGranted = storage.bool(forKey: "accessibility-was-granted")
+                if wasPreviouslyGranted {
+                    requestAccessibilityPermission()
+                }
             } else {
                 logMessage("Periodic accessibility check: permission granted", level: .debug)
+            }
+        }
+    }
+    
+    // Check screen recording permission periodically and request if needed
+    private func checkScreenRecordingPermissionPeriodically() {
+        if #available(macOS 10.15, *) {
+            // Check every 15 minutes (same as accessibility)
+            let lastCheck = storage.double(forKey: "last-screen-recording-check")
+            let currentTime = Date().timeIntervalSince1970
+            
+            if currentTime - lastCheck > 900 { // 15 minutes
+                storage.set(currentTime, forKey: "last-screen-recording-check")
+                
+                if !CGPreflightScreenCaptureAccess() {
+                    // Only show notification if we haven't shown it recently
+                    let lastNotificationTime = storage.double(forKey: "last-screen-recording-notification")
+                    if currentTime - lastNotificationTime > 3600 { // Only show notification once per hour
+                        logMessage("Periodic screen recording check: permission not granted, showing notification...", level: .info)
+                        
+                        // Show user notification about screen recording permission
+                        let notification = NSUserNotification()
+                        notification.title = "MonitorClient Needs Screen Recording Permission"
+                        notification.informativeText = "Please grant screen recording permission to enable screenshot monitoring"
+                        notification.soundName = NSUserNotificationDefaultSoundName
+                        notification.actionButtonTitle = "Open Settings"
+                        notification.otherButtonTitle = "Later"
+                        
+                        NSUserNotificationCenter.default.deliver(notification)
+                        
+                        storage.set(currentTime, forKey: "last-screen-recording-notification")
+                    }
+                    
+                    // Only request permission if it was previously granted (revoked case)
+                    let wasPreviouslyGranted = storage.bool(forKey: "screen-recording-was-granted")
+                    if wasPreviouslyGranted {
+                        requestScreenRecordingPermission()
+                    }
+                } else {
+                    logMessage("Periodic screen recording check: permission granted", level: .debug)
+                }
             }
         }
     }
@@ -2914,6 +3221,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         }
         
         logMessage("=== End Test ===", level: .info)
+    }
+    
+    // Test screen recording permission manually
+    @objc func testScreenRecordingPermission() {
+        logMessage("=== Testing Screen Recording Permission ===", level: .info)
+        
+        if #available(macOS 10.15, *) {
+            let isEnabled = CGPreflightScreenCaptureAccess()
+            logMessage("Screen recording permission: \(isEnabled ? "✅ GRANTED" : "❌ DENIED")", level: .info)
+            
+            if isEnabled {
+                logMessage("✅ Screen recording permission granted", level: .info)
+                
+                // Try to take a test screenshot
+                logMessage("Taking test screenshot...", level: .info)
+                TakeScreenShotsAndPost()
+                
+            } else {
+                logMessage("❌ Screen recording permission not granted", level: .error)
+                logMessage("Requesting screen recording permission...", level: .info)
+                requestScreenRecordingPermission()
+            }
+        } else {
+            logMessage("ℹ️  Screen recording permission not required on this macOS version", level: .info)
+        }
+        
+        logMessage("=== End Screen Recording Test ===", level: .info)
     }
     
     // Test browser history collection manually
@@ -3136,6 +3470,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         accessibilityItem.isEnabled = false
         menu.addItem(accessibilityItem)
         
+        // Screen recording status
+        let screenRecordingItem = NSMenuItem(title: "Screen Recording: Checking...", action: nil, keyEquivalent: "")
+        screenRecordingItem.tag = 103
+        screenRecordingItem.isEnabled = false
+        menu.addItem(screenRecordingItem)
+        
         // Keyboard monitoring status
         let keyboardItem = NSMenuItem(title: "Keyboard: Checking...", action: nil, keyEquivalent: "")
         keyboardItem.tag = 102
@@ -3185,6 +3525,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         let openSettingsItem = NSMenuItem(title: "Open Accessibility Settings", action: #selector(openAccessibilityPreferences), keyEquivalent: "")
         menu.addItem(openSettingsItem)
         
+        let openScreenRecordingItem = NSMenuItem(title: "Open Screen Recording Settings", action: #selector(openScreenRecordingPreferences), keyEquivalent: "")
+        menu.addItem(openScreenRecordingItem)
+        
         menu.addItem(NSMenuItem.separator())
         
         // Manual test actions
@@ -3215,12 +3558,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         }
         
         let isAccessibilityEnabled = isInputMonitoringEnabled()
+        let isScreenRecordingEnabled = isScreenRecordingEnabled()
         let isKeyboardActive = eventTap != nil && CGEvent.tapIsEnabled(tap: eventTap!)
         
         notification.informativeText = """
         Client: \(clientIPAddress) / \(macAddress)
         Server: \(serverIP) (\(serverStatus))
         Accessibility: \(isAccessibilityEnabled ? "✅" : "❌")
+        Screen Recording: \(isScreenRecordingEnabled ? "✅" : "❌")
         Keyboard: \(isKeyboardActive ? "✅" : "❌")
         Keys: \(keyLogs.count)
         USB Events: \(usbDeviceLogs.count)
@@ -3254,6 +3599,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserNotificationCenterDele
         if let accessibilityItem = menu.item(withTag: 101) {
             let isEnabled = isInputMonitoringEnabled()
             accessibilityItem.title = "Accessibility: \(isEnabled ? "✅ Enabled" : "❌ Disabled")"
+        }
+        
+        // Update screen recording status
+        if let screenRecordingItem = menu.item(withTag: 103) {
+            let isEnabled = isScreenRecordingEnabled()
+            screenRecordingItem.title = "Screen Recording: \(isEnabled ? "✅ Enabled" : "❌ Disabled")"
         }
         
         // Update keyboard monitoring status

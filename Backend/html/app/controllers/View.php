@@ -108,8 +108,8 @@ class View extends Base {
                 // Add monitor info and ensure thumbnail/full image fields
                 foreach ($paginated_screenshots as &$screenshot) {
                     $screenshot['monitor'] = $monitor;
-                    $screenshot['thumbnail'] = $screenshot['thumbnail_path'];
-                    $screenshot['screenshot'] = $screenshot['full_path'];
+                    $screenshot['thumbnail'] = $this->getRelativePath($screenshot['thumbnail_path']);
+                    $screenshot['screenshot'] = $this->getRelativePath($screenshot['full_path']);
                 }
                 
                 $this->json([
@@ -127,7 +127,7 @@ class View extends Base {
                 $this->json(['error' => 'Monitor not found']);
             }
         } else {
-            // Load only latest screenshots for all monitors (right panel)
+            // Load only latest screenshots for all monitors (right panel) - OPTIMIZED
             $monitors = $this->db->fetchAll(
                 "SELECT * FROM tbl_monitor_ips ORDER BY name ASC"
             );
@@ -141,16 +141,17 @@ class View extends Base {
             
             $latest_screenshots = [];
             
+            // Optimized: Get latest screenshots efficiently
             foreach ($monitors as $monitor) {
                 $ip_identifier = 'ip_' . $monitor['ip_address'];
-                $latest_screenshot = $this->dataSync->getLatestScreenshot($ip_identifier);
+                $latest_screenshot = $this->getLatestScreenshotOptimized($ip_identifier);
                 
                 if ($latest_screenshot) {
                     $latest_screenshots[] = [
                         'monitor' => $monitor,
-                        'screenshot' => $latest_screenshot,
-                        'thumbnail' => $this->getThumbnail($monitor['ip_address'], $latest_screenshot),
-                        'modified_time' => date('Y-m-d H:i:s', filemtime($latest_screenshot))
+                        'screenshot' => $this->getRelativePath($latest_screenshot['full_path']),
+                        'thumbnail' => $this->getRelativePath($latest_screenshot['thumbnail_path']),
+                        'modified_time' => $latest_screenshot['modified_time']
                     ];
                 }
             }
@@ -304,22 +305,32 @@ class View extends Base {
         
         // Add status based on database data only
         foreach ($monitors as &$monitor) {
-            // Determine status based on last_monitor_tic
-            $last_tic = strtotime($monitor['last_monitor_tic']);
+            // Use last_monitor_tic for real-time status (updated by client Tic events)
+            $last_tic = $monitor['last_monitor_tic'] ? strtotime($monitor['last_monitor_tic']) : 0;
             $time_diff = time() - $last_tic;
             
-            if ($time_diff <= 300) { // 5 minutes
+            if ($last_tic === 0) {
+                // No activity recorded
+                $monitor['live_status'] = 'offline';
+                $monitor['status_text'] = 'Never';
+                $monitor['latest_activity'] = 0;
+            } elseif ($time_diff <= 60) { // 1 minute - very recent activity
                 $monitor['live_status'] = 'online';
                 $monitor['status_text'] = 'Online';
+                $monitor['latest_activity'] = $last_tic;
+            } elseif ($time_diff <= 300) { // 5 minutes
+                $monitor['live_status'] = 'online';
+                $monitor['status_text'] = 'Online';
+                $monitor['latest_activity'] = $last_tic;
             } elseif ($time_diff <= 3600) { // 1 hour
                 $monitor['live_status'] = 'inactive';
                 $monitor['status_text'] = 'Inactive';
+                $monitor['latest_activity'] = $last_tic;
             } else {
                 $monitor['live_status'] = 'offline';
                 $monitor['status_text'] = 'Offline';
+                $monitor['latest_activity'] = $last_tic;
             }
-            
-            $monitor['latest_activity'] = $last_tic;
         }
         
         $this->json($monitors);
@@ -387,14 +398,74 @@ class View extends Base {
     private function getThumbnail($ip_address, $screenshot_path) {
         // Fix: Use the actual directory format (dots preserved)
         $ip_identifier = 'ip_' . $ip_address;
-        $thumb_dir = THUMBNAILS_DIR . $ip_identifier;
         
-        // Get relative path from screenshots directory
+        // Convert screenshot path to thumbnail path
+        $thumbnail_path = str_replace(SCREENS_DIR, THUMBNAILS_DIR, $screenshot_path);
+        
+        // Check if thumbnail exists, if not return the original screenshot path
+        if (file_exists($thumbnail_path)) {
+            return $thumbnail_path;
+        } else {
+            // If thumbnail doesn't exist, return the original screenshot path
+            return $screenshot_path;
+        }
+    }
+    
+    /**
+     * Optimized method to get the latest screenshot for an IP
+     * This method is much faster than the DataSyncService version
+     */
+    private function getLatestScreenshotOptimized($ip_identifier) {
         $screens_dir = SCREENS_DIR . $ip_identifier;
-        $relative_path = str_replace($screens_dir . '/', '', $screenshot_path);
-        $thumbnail_path = $thumb_dir . '/' . $relative_path;
         
-        return file_exists($thumbnail_path) ? $thumbnail_path : $screenshot_path;
+        if (!is_dir($screens_dir)) {
+            return null;
+        }
+        
+        $latest_file = null;
+        $latest_time = 0;
+        
+        // Use scandir instead of RecursiveIteratorIterator for better performance
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($screens_dir, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
+        
+        foreach ($iterator as $file) {
+            if ($file->isFile() && in_array($file->getExtension(), ['jpg', 'jpeg', 'png'])) {
+                $file_time = $file->getMTime();
+                if ($file_time > $latest_time) {
+                    $latest_time = $file_time;
+                    $latest_file = $file->getPathname();
+                }
+            }
+        }
+        
+        if (!$latest_file) {
+            return null;
+        }
+        
+        // Get thumbnail path
+        $thumbnail_path = str_replace(SCREENS_DIR, THUMBNAILS_DIR, $latest_file);
+        
+        return [
+            'full_path' => $latest_file,
+            'thumbnail_path' => file_exists($thumbnail_path) ? $thumbnail_path : $latest_file,
+            'modified_time' => date('Y-m-d H:i:s', $latest_time)
+        ];
+    }
+    
+    /**
+     * Convert absolute file path to relative URL path
+     */
+    private function getRelativePath($absolute_path) {
+        // Remove BASEPATH from the beginning of the path
+        $relative_path = str_replace(BASEPATH, '', $absolute_path);
+        
+        // Convert backslashes to forward slashes for web URLs
+        $relative_path = str_replace('\\', '/', $relative_path);
+        
+        return $relative_path;
     }
     
     public function formatFileSize($bytes) {

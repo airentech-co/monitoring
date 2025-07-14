@@ -936,22 +936,26 @@ function updateMonitorList(monitors) {
     monitors.forEach(function(monitor) {
         const isSelected = selectedMonitors.includes(monitor.id);
         
-        // Calculate status for left panel (no time ago)
-        let statusText = 'Offline';
-        let statusClass = 'offline';
-        if (monitor.latest_activity) {
+        // Use the status calculated by the backend
+        let statusText = monitor.status_text || 'Offline';
+        let statusClass = monitor.live_status || 'offline';
+        
+
+        
+        // Fallback calculation if backend status is not available
+        if (!monitor.live_status && monitor.latest_activity) {
             const timeAgo = Math.floor((Date.now() / 1000) - monitor.latest_activity);
-            if (timeAgo < 3600) { // Less than 1 hour
-                statusText = 'Active';
+            if (timeAgo < 300) { // 5 minutes - match backend logic
+                statusText = 'Online';
                 statusClass = 'online';
-            } else if (timeAgo < 86400) { // Less than 1 day
+            } else if (timeAgo < 3600) { // 1 hour - match backend logic
                 statusText = 'Inactive';
                 statusClass = 'inactive';
             } else {
-                statusText = 'Inactive';
+                statusText = 'Offline';
                 statusClass = 'offline';
             }
-        } else {
+        } else if (!monitor.latest_activity) {
             statusText = 'Never';
             statusClass = 'offline';
         }
@@ -985,12 +989,13 @@ function updateMonitorList(monitors) {
 function updateStatusStats(monitors) {
     const total = monitors.length;
     const online = monitors.filter(m => m.live_status === 'online').length;
-    const active = monitors.filter(m => m.has_recent_screenshot || m.has_recent_logs).length;
+    const inactive = monitors.filter(m => m.live_status === 'inactive').length;
+    const offline = monitors.filter(m => m.live_status === 'offline').length;
     
     $('#total-monitors').text(total);
     $('#online-monitors').text(online);
-    $('#active-monitors').text(active);
-    $('#total-screenshots').text(monitors.filter(m => m.has_recent_screenshot).length);
+    $('#active-monitors').text(inactive + online); // Active = online + inactive
+    $('#total-screenshots').text(monitors.filter(m => m.live_status === 'online' || m.live_status === 'inactive').length);
 }
 
 function loadScreenshotsForMonitor(monitorId) {

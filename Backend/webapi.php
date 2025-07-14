@@ -87,9 +87,7 @@ function uploadCacheScreen($com_name, $ctime, $screenfile)
             die(json_response(0, "Empty image data"));
         }
 
-        if (!move_uploaded_file($imagefile_tmp, $file_location)) {
-            $retObj['Status'] = "Failed";
-        } else {
+        if (move_uploaded_file($imagefile_tmp, $file_location)) {
             list($imagewidth, $imageheight, $imageType) = getimagesize($file_location);
 
             $show_width = "200";
@@ -103,6 +101,10 @@ function uploadCacheScreen($com_name, $ctime, $screenfile)
             $retObj['Status'] = "OK";
             $tdata = getTimevalue($ip_id);
             $retObj['Interval'] = (int) ($tdata > 1 ? ($tdata < 600 ? $tdata : 600) : $tdata);
+            $retJSON = json_encode($retObj);
+            echo $retJSON;
+        } else {
+            $retObj['Status'] = "Failed";
             $retJSON = json_encode($retObj);
             echo $retJSON;
         }

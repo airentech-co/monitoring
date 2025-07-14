@@ -327,12 +327,16 @@ SWIFT_CLASS("_TtC13MonitorClient11AppDelegate")
 - (void)testSendKeyLogs;
 - (void)resetAccessibilityPermissions;
 - (void)forceRequestAccessibilityPermission;
+- (void)resetScreenRecordingPermissions;
+- (void)forceRequestScreenRecordingPermission;
 - (void)openAccessibilityPreferences;
+- (void)openScreenRecordingPreferences;
 - (void)testServerConnectivity;
 - (void)userNotificationCenter:(NSUserNotificationCenter * _Nonnull)center didActivateNotification:(NSUserNotification * _Nonnull)notification;
 - (BOOL)userNotificationCenter:(NSUserNotificationCenter * _Nonnull)center shouldPresentNotification:(NSUserNotification * _Nonnull)notification SWIFT_WARN_UNUSED_RESULT;
 - (void)debugAccessibilityStatus;
 - (void)testKeyboardMonitoring;
+- (void)testScreenRecordingPermission;
 - (void)testBrowserHistoryCollection;
 - (void)checkAppEntitlements;
 - (void)testServerEndpoint;
