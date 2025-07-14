@@ -1,1 +1,1 @@
--IC:/Users/RAMSES~1/MONITO~1/Windows -I"C:/Users/Ramses Lee/monitoring/Windows/include"
+-IC:/Users/RAMSES~1/MONITO~1/Windows -I"C:/Users/Ramses Lee/monitoring/Windows/include" -IC:/msys64/mingw64/include/jsoncpp

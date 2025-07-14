@@ -1,23 +1,26 @@
+cmake_minimum_required(VERSION 3.10)
+project(MonitorClient)
+
 # Windows-specific build configuration for MinGW-w64
 
 # Find required packages for Windows
 find_package(PkgConfig REQUIRED)
 
 # Find SQLite3 for MinGW
-find_library(SQLITE3_LIBRARY sqlite3)
+find_library(SQLITE3_LIBRARY sqlite3 PATHS C:/msys64/mingw64/lib NO_DEFAULT_PATH)
 if(NOT SQLITE3_LIBRARY)
     # Try alternative names for MinGW
-    find_library(SQLITE3_LIBRARY libsqlite3)
+    find_library(SQLITE3_LIBRARY libsqlite3 PATHS C:/msys64/mingw64/lib NO_DEFAULT_PATH)
     if(NOT SQLITE3_LIBRARY)
         message(FATAL_ERROR "SQLite3 library not found. Please install: pacman -S mingw-w64-x86_64-sqlite3")
     endif()
 endif()
 
 # Find JsonCpp for MinGW
-find_library(JSONCPP_LIBRARY jsoncpp)
+find_library(JSONCPP_LIBRARY jsoncpp PATHS C:/msys64/mingw64/lib NO_DEFAULT_PATH)
 if(NOT JSONCPP_LIBRARY)
     # Try alternative names for MinGW
-    find_library(JSONCPP_LIBRARY libjsoncpp)
+    find_library(JSONCPP_LIBRARY libjsoncpp PATHS C:/msys64/mingw64/lib NO_DEFAULT_PATH)
     if(NOT JSONCPP_LIBRARY)
         message(FATAL_ERROR "JsonCpp library not found. Please install: pacman -S mingw-w64-x86_64-jsoncpp")
     endif()
@@ -42,6 +45,7 @@ target_include_directories(MonitorClient PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     C:/msys64/mingw64/include
+    C:/msys64/mingw64/include/jsoncpp
 )
 
 # Windows-specific libraries for MinGW
