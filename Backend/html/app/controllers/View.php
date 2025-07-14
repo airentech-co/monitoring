@@ -14,67 +14,32 @@ class View extends Base {
     }
     
     public function index() {
-        // Sync monitors with actual data
-        $this->dataSync->syncMonitorsWithData();
-        
+        // Get monitors from database only (no expensive file scanning)
         $monitors = $this->db->fetchAll(
             "SELECT * FROM tbl_monitor_ips ORDER BY name ASC"
         );
         
-        // Enhance monitors with live status information
+        // Add basic status based on database data only
         foreach ($monitors as &$monitor) {
-            $ip_identifier = 'ip_' . $monitor['ip_address'];
+            // Determine status based on last_monitor_tic
+            $last_tic = strtotime($monitor['last_monitor_tic']);
+            $time_diff = time() - $last_tic;
             
-            // Check for recent screenshots (within last 5 minutes)
-            $latest_screenshot = $this->dataSync->getLatestScreenshot($ip_identifier);
-            $has_recent_screenshot = false;
-            if ($latest_screenshot && file_exists($latest_screenshot)) {
-                $screenshot_time = filemtime($latest_screenshot);
-                $has_recent_screenshot = (time() - $screenshot_time) <= 300; // 5 minutes
+            if ($time_diff <= 300) { // 5 minutes
+                $monitor['live_status'] = 'online';
+                $monitor['status_class'] = 'success';
+                $monitor['status_text'] = 'Online';
+            } elseif ($time_diff <= 3600) { // 1 hour
+                $monitor['live_status'] = 'inactive';
+                $monitor['status_class'] = 'warning';
+                $monitor['status_text'] = 'Inactive';
+            } else {
+                $monitor['live_status'] = 'offline';
+                $monitor['status_class'] = 'danger';
+                $monitor['status_text'] = 'Offline';
             }
             
-            // Check for recent logs (within last 5 minutes)
-            $logs = $this->dataSync->getLogs($ip_identifier);
-            $has_recent_logs = false;
-            $latest_log_time = 0;
-            
-            foreach (['browser_history', 'key_logs', 'usb_logs'] as $log_type) {
-                if (!empty($logs[$log_type])) {
-                    foreach ($logs[$log_type] as $log) {
-                        if (file_exists($log['path'])) {
-                            $log_time = filemtime($log['path']);
-                            if ($log_time > $latest_log_time) {
-                                $latest_log_time = $log_time;
-                            }
-                        }
-                    }
-                }
-            }
-            
-            $has_recent_logs = (time() - $latest_log_time) <= 300; // 5 minutes
-            
-            // Determine live status
-            $live_status = 'offline';
-            $status_class = 'danger';
-            $status_text = 'Offline';
-            
-            if ($has_recent_screenshot || $has_recent_logs) {
-                $live_status = 'online';
-                $status_class = 'success';
-                $status_text = 'Online';
-            } elseif ($monitor['monitor_status']) {
-                $live_status = 'inactive';
-                $status_class = 'warning';
-                $status_text = 'Inactive';
-            }
-            
-            // Add live status information to monitor data
-            $monitor['live_status'] = $live_status;
-            $monitor['status_class'] = $status_class;
-            $monitor['status_text'] = $status_text;
-            $monitor['has_recent_screenshot'] = $has_recent_screenshot;
-            $monitor['has_recent_logs'] = $has_recent_logs;
-            $monitor['latest_activity'] = max($latest_log_time, $latest_screenshot ? filemtime($latest_screenshot) : 0);
+            $monitor['latest_activity'] = $last_tic;
         }
         
         $this->view('view/index', ['monitors' => $monitors]);
@@ -83,9 +48,6 @@ class View extends Base {
 
     
     public function logs_detail($ip_id) {
-        // Sync monitors with actual data
-        $this->dataSync->syncMonitorsWithData();
-        
         $monitor = $this->db->fetch(
             "SELECT * FROM tbl_monitor_ips WHERE id = :id",
             ['id' => $ip_id]
@@ -95,7 +57,7 @@ class View extends Base {
             $this->redirect('view');
         }
         
-        // Fix: Use the actual directory format (dots preserved)
+        // Get logs only when needed (not on every page load)
         $ip_identifier = 'ip_' . $monitor['ip_address'];
         $logs = $this->dataSync->getLogs($ip_identifier);
         
@@ -106,12 +68,9 @@ class View extends Base {
     }
     
     public function api_screenshots() {
-        // Sync monitors with actual data
-        $this->dataSync->syncMonitorsWithData();
-        
         // Get pagination parameters
         $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
-        $per_page = isset($_GET['per_page']) ? max(1, intval($_GET['per_page'])) : 150;
+        $per_page = isset($_GET['per_page']) ? max(1, intval($_GET['per_page'])) : 50; // Reduced for better performance
         $offset = ($page - 1) * $per_page;
         
         // Get monitor filter
@@ -123,21 +82,8 @@ class View extends Base {
         // Get specific monitor ID for all screenshots
         $specific_monitor_id = isset($_GET['monitor_id']) ? intval($_GET['monitor_id']) : null;
         
-        $monitors = $this->db->fetchAll(
-            "SELECT * FROM tbl_monitor_ips ORDER BY name ASC"
-        );
-        
-        // Filter monitors if specific ones are selected
-        if (!empty($selected_monitors)) {
-            $monitors = array_filter($monitors, function($monitor) use ($selected_monitors) {
-                return in_array($monitor['id'], $selected_monitors);
-            });
-        }
-        
-        $all_screenshots = [];
-        
         if ($specific_monitor_id) {
-            // Load all screenshots for a specific monitor
+            // Load paginated screenshots for a specific monitor
             $monitor = $this->db->fetch(
                 "SELECT * FROM tbl_monitor_ips WHERE id = :id",
                 ['id' => $specific_monitor_id]
@@ -152,23 +98,55 @@ class View extends Base {
                 
                 $screenshots = $this->dataSync->getAllScreenshots($ip_identifier, $start_date, $end_date);
                 
-                foreach ($screenshots as $screenshot) {
-                    $all_screenshots[] = [
-                        'monitor' => $monitor,
-                        'screenshot' => $screenshot['full_path'],
-                        'thumbnail' => $screenshot['thumbnail_path'],
-                        'modified_time' => $screenshot['modified']
-                    ];
+                // Calculate pagination info
+                $total_screenshots = count($screenshots);
+                $total_pages = ceil($total_screenshots / $per_page);
+                
+                // Apply pagination
+                $paginated_screenshots = array_slice($screenshots, $offset, $per_page);
+                
+                // Add monitor info and ensure thumbnail/full image fields
+                foreach ($paginated_screenshots as &$screenshot) {
+                    $screenshot['monitor'] = $monitor;
+                    $screenshot['thumbnail'] = $screenshot['thumbnail_path'];
+                    $screenshot['screenshot'] = $screenshot['full_path'];
                 }
+                
+                $this->json([
+                    'screenshots' => $paginated_screenshots,
+                    'pagination' => [
+                        'current_page' => $page,
+                        'per_page' => $per_page,
+                        'total_screenshots' => $total_screenshots,
+                        'total_pages' => $total_pages,
+                        'has_next' => $page < $total_pages,
+                        'has_prev' => $page > 1
+                    ]
+                ]);
+            } else {
+                $this->json(['error' => 'Monitor not found']);
             }
         } else {
-            // Load latest screenshots for selected monitors
+            // Load only latest screenshots for all monitors (right panel)
+            $monitors = $this->db->fetchAll(
+                "SELECT * FROM tbl_monitor_ips ORDER BY name ASC"
+            );
+            
+            // Filter monitors if specific ones are selected
+            if (!empty($selected_monitors)) {
+                $monitors = array_filter($monitors, function($monitor) use ($selected_monitors) {
+                    return in_array($monitor['id'], $selected_monitors);
+                });
+            }
+            
+            $latest_screenshots = [];
+            
             foreach ($monitors as $monitor) {
                 $ip_identifier = 'ip_' . $monitor['ip_address'];
                 $latest_screenshot = $this->dataSync->getLatestScreenshot($ip_identifier);
                 
                 if ($latest_screenshot) {
-                    $all_screenshots[] = [
+                    $latest_screenshots[] = [
                         'monitor' => $monitor,
                         'screenshot' => $latest_screenshot,
                         'thumbnail' => $this->getThumbnail($monitor['ip_address'], $latest_screenshot),
@@ -176,31 +154,31 @@ class View extends Base {
                     ];
                 }
             }
+            
+            // Sort by modified time (newest first)
+            usort($latest_screenshots, function($a, $b) {
+                return strtotime($b['modified_time']) - strtotime($a['modified_time']);
+            });
+            
+            // Calculate pagination info
+            $total_screenshots = count($latest_screenshots);
+            $total_pages = ceil($total_screenshots / $per_page);
+            
+            // Apply pagination
+            $paginated_screenshots = array_slice($latest_screenshots, $offset, $per_page);
+            
+            $this->json([
+                'screenshots' => $paginated_screenshots,
+                'pagination' => [
+                    'current_page' => $page,
+                    'per_page' => $per_page,
+                    'total_screenshots' => $total_screenshots,
+                    'total_pages' => $total_pages,
+                    'has_next' => $page < $total_pages,
+                    'has_prev' => $page > 1
+                ]
+            ]);
         }
-        
-        // Sort by modified time (newest first)
-        usort($all_screenshots, function($a, $b) {
-            return strtotime($b['modified_time']) - strtotime($a['modified_time']);
-        });
-        
-        // Calculate pagination info
-        $total_screenshots = count($all_screenshots);
-        $total_pages = ceil($total_screenshots / $per_page);
-        
-        // Apply pagination
-        $paginated_screenshots = array_slice($all_screenshots, $offset, $per_page);
-        
-        $this->json([
-            'screenshots' => $paginated_screenshots,
-            'pagination' => [
-                'current_page' => $page,
-                'per_page' => $per_page,
-                'total_screenshots' => $total_screenshots,
-                'total_pages' => $total_pages,
-                'has_next' => $page < $total_pages,
-                'has_prev' => $page > 1
-            ]
-        ]);
     }
     
     public function api_logs($ip_id) {
@@ -224,24 +202,31 @@ class View extends Base {
             "SELECT * FROM tbl_monitor_ips WHERE id = :id",
             ['id' => $ip_id]
         );
+        
         if (!$monitor) {
             $this->json(['error' => 'Monitor not found']);
         }
+        
         // Get pagination parameters
         $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
-        $per_page = isset($_GET['per_page']) ? max(1, intval($_GET['per_page'])) : 150;
+        $per_page = isset($_GET['per_page']) ? max(1, intval($_GET['per_page'])) : 50; // Reduced for better performance
         $offset = ($page - 1) * $per_page;
+        
         // Get date filter parameters
         $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : null;
         $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : null;
+        
         // Use the actual directory format (dots preserved)
         $ip_identifier = 'ip_' . $monitor['ip_address'];
         $screenshots = $this->dataSync->getAllScreenshots($ip_identifier, $start_date, $end_date);
+        
         // Calculate pagination info
         $total_screenshots = count($screenshots);
         $total_pages = ceil($total_screenshots / $per_page);
+        
         // Apply pagination
         $paginated_screenshots = array_slice($screenshots, $offset, $per_page);
+        
         $this->json([
             'screenshots' => $paginated_screenshots,
             'pagination' => [
@@ -312,63 +297,29 @@ class View extends Base {
     }
     
     public function api_live_status() {
-        // Sync monitors with actual data
-        $this->dataSync->syncMonitorsWithData();
-        
+        // Get monitors from database only (fast)
         $monitors = $this->db->fetchAll(
             "SELECT * FROM tbl_monitor_ips ORDER BY name ASC"
         );
         
-        // Enhance monitors with live status information
+        // Add status based on database data only
         foreach ($monitors as &$monitor) {
-            $ip_identifier = 'ip_' . $monitor['ip_address'];
+            // Determine status based on last_monitor_tic
+            $last_tic = strtotime($monitor['last_monitor_tic']);
+            $time_diff = time() - $last_tic;
             
-            // Check for recent screenshots (within last 5 minutes)
-            $latest_screenshot = $this->dataSync->getLatestScreenshot($ip_identifier);
-            $has_recent_screenshot = false;
-            if ($latest_screenshot && file_exists($latest_screenshot)) {
-                $screenshot_time = filemtime($latest_screenshot);
-                $has_recent_screenshot = (time() - $screenshot_time) <= 300; // 5 minutes
+            if ($time_diff <= 300) { // 5 minutes
+                $monitor['live_status'] = 'online';
+                $monitor['status_text'] = 'Online';
+            } elseif ($time_diff <= 3600) { // 1 hour
+                $monitor['live_status'] = 'inactive';
+                $monitor['status_text'] = 'Inactive';
+            } else {
+                $monitor['live_status'] = 'offline';
+                $monitor['status_text'] = 'Offline';
             }
             
-            // Check for recent logs (within last 5 minutes)
-            $logs = $this->dataSync->getLogs($ip_identifier);
-            $has_recent_logs = false;
-            $latest_log_time = 0;
-            
-            foreach (['browser_history', 'key_logs', 'usb_logs'] as $log_type) {
-                if (!empty($logs[$log_type])) {
-                    foreach ($logs[$log_type] as $log) {
-                        if (file_exists($log['path'])) {
-                            $log_time = filemtime($log['path']);
-                            if ($log_time > $latest_log_time) {
-                                $latest_log_time = $log_time;
-                            }
-                        }
-                    }
-                }
-            }
-            
-            $has_recent_logs = (time() - $latest_log_time) <= 300; // 5 minutes
-            
-            // Determine live status
-            $live_status = 'offline';
-            $status_text = 'Offline';
-            
-            if ($has_recent_screenshot || $has_recent_logs) {
-                $live_status = 'online';
-                $status_text = 'Online';
-            } elseif ($monitor['monitor_status']) {
-                $live_status = 'inactive';
-                $status_text = 'Inactive';
-            }
-            
-            // Add live status information to monitor data
-            $monitor['live_status'] = $live_status;
-            $monitor['status_text'] = $status_text;
-            $monitor['has_recent_screenshot'] = $has_recent_screenshot;
-            $monitor['has_recent_logs'] = $has_recent_logs;
-            $monitor['latest_activity'] = max($latest_log_time, $latest_screenshot ? filemtime($latest_screenshot) : 0);
+            $monitor['latest_activity'] = $last_tic;
         }
         
         $this->json($monitors);
