@@ -945,10 +945,13 @@ function updateMonitorList(monitors) {
         // Fallback calculation if backend status is not available
         if (!monitor.live_status && monitor.latest_activity) {
             const timeAgo = Math.floor((Date.now() / 1000) - monitor.latest_activity);
-            if (timeAgo < 300) { // 5 minutes - match backend logic
+            if (timeAgo < 600) { // 10 minutes - match backend logic (2 Tic cycles)
                 statusText = 'Online';
                 statusClass = 'online';
-            } else if (timeAgo < 3600) { // 1 hour - match backend logic
+            } else if (timeAgo < 1800) { // 30 minutes - match backend logic (6 Tic cycles)
+                statusText = 'Online';
+                statusClass = 'online';
+            } else if (timeAgo < 3600) { // 1 hour - match backend logic (12 Tic cycles)
                 statusText = 'Inactive';
                 statusClass = 'inactive';
             } else {

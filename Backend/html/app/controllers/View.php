@@ -305,7 +305,7 @@ class View extends Base {
         
         // Add status based on database data only
         foreach ($monitors as &$monitor) {
-            // Use last_monitor_tic for real-time status (updated by client Tic events)
+            // Use last_monitor_tic for real-time status (updated by client Tic events every 5 minutes)
             $last_tic = $monitor['last_monitor_tic'] ? strtotime($monitor['last_monitor_tic']) : 0;
             $time_diff = time() - $last_tic;
             
@@ -314,19 +314,20 @@ class View extends Base {
                 $monitor['live_status'] = 'offline';
                 $monitor['status_text'] = 'Never';
                 $monitor['latest_activity'] = 0;
-            } elseif ($time_diff <= 60) { // 1 minute - very recent activity
+            } elseif ($time_diff <= 600) { // 10 minutes - very recent activity (within 2 Tic cycles)
                 $monitor['live_status'] = 'online';
                 $monitor['status_text'] = 'Online';
                 $monitor['latest_activity'] = $last_tic;
-            } elseif ($time_diff <= 300) { // 5 minutes
+            } elseif ($time_diff <= 1800) { // 30 minutes - recent activity (within 6 Tic cycles)
                 $monitor['live_status'] = 'online';
                 $monitor['status_text'] = 'Online';
                 $monitor['latest_activity'] = $last_tic;
-            } elseif ($time_diff <= 3600) { // 1 hour
+            } elseif ($time_diff <= 3600) { // 1 hour - some activity (within 12 Tic cycles)
                 $monitor['live_status'] = 'inactive';
                 $monitor['status_text'] = 'Inactive';
                 $monitor['latest_activity'] = $last_tic;
             } else {
+                // More than 1 hour - likely offline
                 $monitor['live_status'] = 'offline';
                 $monitor['status_text'] = 'Offline';
                 $monitor['latest_activity'] = $last_tic;
