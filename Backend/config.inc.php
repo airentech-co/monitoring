@@ -2,7 +2,7 @@
 class JConfig {
     public $dbhost = 'localhost';
     public $dbuser = 'root';
-    public $dbpassword = 'acc_monitor';
+    public $dbpassword = 'acc0924';
     public $dbname = 'monitoring_db';
     
     // Directory paths for storing data
