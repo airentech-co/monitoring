@@ -1147,14 +1147,12 @@ function displayScreenshots(screenshots, pagination = null) {
                     <img src="${thumbnailUrl}" alt="Screenshot" loading="lazy">
                     <div class="screenshot-info">
                         <div class="screenshot-badges">
-                            <span class="badge bg-success">${monitor.name}</span>
                             ${usernameHtml}
                             <span class="badge bg-secondary">${monitor.ip_address}</span>
                             <span class="badge bg-info">${timeAgo}</span>
                         </div>
                         <div class="screenshot-details">
                             <div><i class="fas fa-clock me-1"></i>${timestamp}</div>
-                            <div><i class="fas fa-image me-1"></i>Screenshot available</div>
                         </div>
                     </div>
                 </div>
