@@ -1,0 +1,49 @@
+cmake_minimum_required(VERSION 3.16)
+project(MonitorClientTest)
+
+# Find Qt5 components
+find_package(Qt5 COMPONENTS Core Network Sql DBus REQUIRED)
+
+# Find required system libraries
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(UDEV REQUIRED libudev)
+
+# Test source files
+set(TEST_SOURCES
+    test_build.cpp
+    utils/desktopinfo.cpp
+    functions.cpp
+)
+
+# Create test executable
+add_executable(MonitorClientTest ${TEST_SOURCES})
+
+# Include directories
+target_include_directories(MonitorClientTest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${UDEV_INCLUDE_DIRS}
+)
+
+# Libraries
+target_link_libraries(MonitorClientTest
+    Qt5::Core
+    Qt5::Network
+    Qt5::Sql
+    Qt5::DBus
+    ${UDEV_LIBRARIES}
+    sqlite3
+)
+
+# Compiler definitions
+target_compile_definitions(MonitorClientTest PRIVATE
+    QT_DEPRECATED_WARNINGS
+    _GNU_SOURCE
+)
+
+# Compiler flags
+target_compile_options(MonitorClientTest PRIVATE
+    -Wall
+    -Wextra
+    -std=c++17
+) 

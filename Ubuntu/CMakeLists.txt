@@ -1,3 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+project(MonitorClient)
+
 # Ubuntu/Linux-specific build configuration
 
 # Find Qt5 components
@@ -9,14 +12,21 @@ pkg_check_modules(UDEV REQUIRED libudev)
 
 # Ubuntu-specific source files
 set(UBUNTU_SOURCES
+    main.cpp
     MonitorClient.cpp
     KeyboardMonitor.cpp
+    ConfigDialog.cpp
     utils/desktopinfo.cpp
     functions.cpp
 )
 
-# Create Ubuntu executable
+# Create Ubuntu executable with MOC support
 add_executable(MonitorClient ${UBUNTU_SOURCES})
+
+# Enable Qt MOC for the target
+set_target_properties(MonitorClient PROPERTIES
+    AUTOMOC ON
+)
 
 # Set Ubuntu-specific properties
 set_target_properties(MonitorClient PROPERTIES

