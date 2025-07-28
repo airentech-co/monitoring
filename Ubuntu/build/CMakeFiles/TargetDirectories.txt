@@ -1,0 +1,9 @@
+/home/se7en/Documents/monitoring/Ubuntu/build/CMakeFiles/MonitorClient.dir
+/home/se7en/Documents/monitoring/Ubuntu/build/CMakeFiles/edit_cache.dir
+/home/se7en/Documents/monitoring/Ubuntu/build/CMakeFiles/rebuild_cache.dir
+/home/se7en/Documents/monitoring/Ubuntu/build/CMakeFiles/list_install_components.dir
+/home/se7en/Documents/monitoring/Ubuntu/build/CMakeFiles/install.dir
+/home/se7en/Documents/monitoring/Ubuntu/build/CMakeFiles/install/local.dir
+/home/se7en/Documents/monitoring/Ubuntu/build/CMakeFiles/install/strip.dir
+/home/se7en/Documents/monitoring/Ubuntu/build/CMakeFiles/MonitorClient_autogen_timestamp_deps.dir
+/home/se7en/Documents/monitoring/Ubuntu/build/CMakeFiles/MonitorClient_autogen.dir
