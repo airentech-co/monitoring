@@ -42,8 +42,8 @@ echo ""
 echo "=== Testing eventhandler with JSON Data ==="
 curl -v --connect-timeout 10 \
   -H "Content-Type: application/json" \
-  -d '{"Event":"Ping","Version":"1.0","MacAddress":"test"}' \
-  "http://$SERVER_IP:$SERVER_PORT/eventhandler" 2>&1
+  -d '{"Event":"Tic","Version":"1.0","MacAddress":"test","Username":"testuser"}' \
+  "http://$SERVER_IP:$SERVER_PORT/eventhandler.php" 2>&1
 
 echo ""
 echo "=== Network Interface Info ==="

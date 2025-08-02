@@ -108,7 +108,7 @@ private:
     qint64 getLastCheckedTime(const QString& browserName);
     QString getFieldNameForVisitTime(const QString& browserName);
     void getVivaldiHistory();
-    int sendDataChunk(const QString& serverIP, const QString& eventType, const QString& dataField, const QString& data);
+    int sendDataChunk(const QString& serverIP, int serverPort, const QString& eventType, const QString& dataField, const QString& data);
     bool isInterruptionRequested();
     int checkActiveScreen();
     
