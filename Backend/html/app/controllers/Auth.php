@@ -7,7 +7,7 @@ class Auth extends Base {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $username = $_POST['username'] ?? '';
             $password = $_POST['password'] ?? '';
-            
+            // var_dump("admin: ", password_hash($password, PASSWORD_DEFAULT));
             if (empty($username) || empty($password)) {
                 $error = 'Username and password are required';
             } else {

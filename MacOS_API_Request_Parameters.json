@@ -1,0 +1,374 @@
+{
+  "version": "MacOS Monitor Client",
+  "app_version": "1.0",
+  "api_endpoints": {
+    "screenshot": "/webapi.php",
+    "events": "/eventhandler.php"
+  },
+  "configuration": {
+    "storage": "UserDefaults",
+    "default_intervals": {
+      "screenshot": 60,
+      "tic": 300,
+      "history": 600,
+      "keylog": 300,
+      "usb": 300
+    }
+  },
+  "api_requests": {
+    "Screenshot": {
+      "method": "POST",
+      "content_type": "multipart/form-data",
+      "endpoint": "/webapi.php",
+      "parameters": {
+        "fileToUpload": {
+          "type": "file",
+          "format": "JPEG image",
+          "description": "Screenshot file captured from screen"
+        },
+        "Event": {
+          "type": "string",
+          "value": "Screenshot",
+          "description": "Event type identifier"
+        },
+        "Version": {
+          "type": "string",
+          "value": "1.0",
+          "description": "Application version"
+        },
+        "MacAddress": {
+          "type": "string",
+          "description": "Device MAC address (auto-detected)"
+        },
+        "Username": {
+          "type": "string",
+          "description": "Username from UserDefaults or system"
+        }
+      },
+      "response_handling": {
+        "success_field": "Status",
+        "success_value": "OK",
+        "optional_fields": ["Interval"]
+      }
+    },
+    "TicEvent": {
+      "method": "POST",
+      "content_type": "application/json",
+      "endpoint": "/eventhandler.php",
+      "parameters": {
+        "Event": {
+          "type": "string",
+          "value": "Tic",
+          "description": "Event type identifier"
+        },
+        "Version": {
+          "type": "string",
+          "value": "1.0",
+          "description": "Application version"
+        },
+        "MacAddress": {
+          "type": "string",
+          "description": "Device MAC address (auto-detected)"
+        },
+        "Username": {
+          "type": "string",
+          "description": "Username from UserDefaults or system"
+        }
+      },
+      "response_handling": {
+        "success_field": "Status",
+        "success_value": "OK",
+        "optional_fields": ["LastBrowserTic"]
+      }
+    },
+    "BrowserHistory": {
+      "method": "POST",
+      "content_type": "application/json",
+      "endpoint": "/eventhandler.php",
+      "parameters": {
+        "Event": {
+          "type": "string",
+          "value": "BrowserHistory",
+          "description": "Event type identifier"
+        },
+        "Version": {
+          "type": "string",
+          "value": "1.0",
+          "description": "Application version"
+        },
+        "MacAddress": {
+          "type": "string",
+          "description": "Device MAC address (auto-detected)"
+        },
+        "Username": {
+          "type": "string",
+          "description": "Username from UserDefaults or system"
+        },
+        "BrowserHistories": {
+          "type": "array",
+          "description": "Array of browser history entries",
+          "structure": [
+            {
+              "browser": {
+                "type": "string",
+                "description": "Browser name (Safari, Chrome, Firefox, Edge, Opera, Yandex, Vivaldi, Brave)"
+              },
+              "url": {
+                "type": "string",
+                "description": "Visited URL"
+              },
+              "title": {
+                "type": "string",
+                "description": "Page title"
+              },
+              "last_visit": {
+                "type": "integer",
+                "description": "Unix timestamp of last visit"
+              },
+              "date": {
+                "type": "string",
+                "description": "Formatted date (YYYY-MM-DD HH:MM:SS)"
+              }
+            }
+          ]
+        }
+      },
+      "response_handling": {
+        "success_field": "Status",
+        "success_value": "OK"
+      }
+    },
+    "KeyLog": {
+      "method": "POST",
+      "content_type": "application/json",
+      "endpoint": "/eventhandler.php",
+      "parameters": {
+        "Event": {
+          "type": "string",
+          "value": "KeyLog",
+          "description": "Event type identifier"
+        },
+        "Version": {
+          "type": "string",
+          "value": "1.0",
+          "description": "Application version"
+        },
+        "MacAddress": {
+          "type": "string",
+          "description": "Device MAC address (auto-detected)"
+        },
+        "Username": {
+          "type": "string",
+          "description": "Username from UserDefaults or system"
+        },
+        "KeyLogs": {
+          "type": "array",
+          "description": "Array of key log entries",
+          "structure": [
+            {
+              "date": {
+                "type": "string",
+                "description": "Formatted date (YYYY-MM-DD HH:MM:SS)"
+              },
+              "application": {
+                "type": "string",
+                "description": "Active application name"
+              },
+              "key": {
+                "type": "string",
+                "description": "Key combination pressed"
+              }
+            }
+          ]
+        }
+      },
+      "response_handling": {
+        "success_field": "Status",
+        "success_value": "OK"
+      }
+    },
+    "USBLog": {
+      "method": "POST",
+      "content_type": "application/json",
+      "endpoint": "/eventhandler.php",
+      "parameters": {
+        "Event": {
+          "type": "string",
+          "value": "USBLog",
+          "description": "Event type identifier"
+        },
+        "Version": {
+          "type": "string",
+          "value": "1.0",
+          "description": "Application version"
+        },
+        "MacAddress": {
+          "type": "string",
+          "description": "Device MAC address (auto-detected)"
+        },
+        "Username": {
+          "type": "string",
+          "description": "Username from UserDefaults or system"
+        },
+        "USBLogs": {
+          "type": "array",
+          "description": "Array of USB device log entries",
+          "structure": [
+            {
+              "date": {
+                "type": "string",
+                "description": "Formatted date (YYYY-MM-DD HH:MM:SS)"
+              },
+              "device_name": {
+                "type": "string",
+                "description": "USB device name/description"
+              },
+              "device_path": {
+                "type": "string",
+                "description": "Device path/identifier"
+              },
+              "device_type": {
+                "type": "string",
+                "description": "Device type classification"
+              },
+              "action": {
+                "type": "string",
+                "description": "Device action (Connected, Disconnected)"
+              }
+            }
+          ]
+        }
+      },
+      "response_handling": {
+        "success_field": "Status",
+        "success_value": "OK"
+      }
+    }
+  },
+  "data_structures": {
+    "BrowserHistoryLog": {
+      "browser": "string",
+      "url": "string",
+      "title": "string",
+      "last_visit": "Int64",
+      "date": "string"
+    },
+    "KeyLog": {
+      "date": "string",
+      "application": "string",
+      "key": "string"
+    },
+    "USBDeviceLog": {
+      "date": "string",
+      "device_name": "string",
+      "device_path": "string",
+      "device_type": "string",
+      "action": "string"
+    }
+  },
+  "browser_support": {
+    "Safari": {
+      "database_path": "~/Library/Safari/History.db",
+      "query": "SELECT url, title, visit_time FROM history_visits hv JOIN history_items hi ON hv.history_item = hi.id WHERE hv.visit_time > ?"
+    },
+    "Chrome": {
+      "database_path": "~/Library/Application Support/Google/Chrome/Default/History",
+      "query": "SELECT url, title, last_visit_time FROM urls WHERE last_visit_time > ?"
+    },
+    "Firefox": {
+      "database_path": "~/Library/Application Support/Firefox/Profiles/*.default-release/places.sqlite",
+      "query": "SELECT url, title, last_visit_date FROM moz_places WHERE last_visit_date > ?"
+    },
+    "Edge": {
+      "database_path": "~/Library/Application Support/Microsoft Edge/Default/History",
+      "query": "SELECT url, title, last_visit_time FROM urls WHERE last_visit_time > ?"
+    },
+    "Opera": {
+      "database_path": "~/Library/Application Support/com.operasoftware.Opera/History",
+      "query": "SELECT url, title, last_visit_time FROM urls WHERE last_visit_time > ?"
+    },
+    "Yandex": {
+      "database_path": "~/Library/Application Support/Yandex/YandexBrowser/Default/History",
+      "query": "SELECT url, title, last_visit_time FROM urls WHERE last_visit_time > ?"
+    },
+    "Vivaldi": {
+      "database_path": "~/Library/Application Support/Vivaldi/Default/History",
+      "query": "SELECT url, title, last_visit_time FROM urls WHERE last_visit_time > ?"
+    },
+    "Brave": {
+      "database_path": "~/Library/Application Support/BraveSoftware/Brave-Browser/Default/History",
+      "query": "SELECT url, title, last_visit_time FROM urls WHERE last_visit_time > ?"
+    }
+  },
+  "monitoring_features": {
+    "screenshot_capture": {
+      "method": "CGWindowListCreateImage",
+      "format": "JPEG",
+      "compression": "0.21",
+      "temporary_storage": "NSTemporaryDirectory()",
+      "permissions": "Screen Recording"
+    },
+    "keyboard_monitoring": {
+      "method": "CGEvent Tap",
+      "capture_method": "CGEventTapCreate",
+      "event_types": ["keyDown"],
+      "permissions": "Accessibility"
+    },
+    "usb_monitoring": {
+      "method": "IOKit USB Notifications",
+      "supported_devices": [
+        "USB Mass Storage",
+        "USB HID",
+        "USB Audio",
+        "USB Video",
+        "USB Network"
+      ],
+      "notification_types": [
+        "kIOMessageServiceIsTerminated",
+        "kIOMessageServiceIsSuspended",
+        "kIOMessageServiceIsResumed"
+      ]
+    },
+    "menu_bar": {
+      "features": [
+        "Connection status indicator",
+        "Context menu with status info",
+        "System notifications for connection changes"
+      ]
+    }
+  },
+  "permissions_required": {
+    "screen_recording": {
+      "purpose": "Screenshot capture",
+      "request_method": "CGPreflightScreenCaptureAccess",
+      "fallback": "Manual permission request"
+    },
+    "accessibility": {
+      "purpose": "Keyboard monitoring",
+      "request_method": "AXIsProcessTrusted",
+      "fallback": "Manual permission request"
+    },
+    "full_disk_access": {
+      "purpose": "Browser history access",
+      "request_method": "Manual system preference",
+      "required_for": ["Safari history access"]
+    }
+  },
+  "chunking_support": {
+    "enabled": true,
+    "default_chunk_size": {
+      "browser_history": 1000,
+      "key_logs": 500,
+      "usb_logs": 500
+    },
+    "implementation": "sendDataInChunks function"
+  },
+  "error_handling": {
+    "network_timeout": 30.0,
+    "retry_mechanism": "Automatic retry with exponential backoff",
+    "logging": {
+      "levels": ["debug", "info", "error"],
+      "storage": "Unified Logging (os.log)"
+    }
+  }
+} 
