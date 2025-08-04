@@ -1280,7 +1280,7 @@ function parseUsbLogs(lines) {
     
     lines.forEach(line => {
         // Parse format: Date: 2025-07-12 17:31:46 | Device: USB Flash Drive | Action: Connected | Details: ...
-        const match = line.match(/Date: (.+?) \| Device: (.+?) \| Action: (.+?) \| Details: (.+)/);
+        const match = line.match(/Date: (.+?) \| Device: (.+?) \| Action: (.+?) \| Details: (.+) /);
         if (match) {
             data.push({
                 date: match[1].trim(),
