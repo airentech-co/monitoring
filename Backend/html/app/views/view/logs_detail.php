@@ -1137,7 +1137,7 @@ function parseBrowserHistory(lines) {
     
     lines.forEach((line, index) => {
         // Parse format: Date: 2025-07-12 17:31:46 | Browser: Chrome | URL: https://... | Title: ... | Last Visit: ...
-        const match = line.match(/Date: (.+?) \| Browser: (.+?) \| URL: (.+?) \| Title: (.+?) \| Last Visit: (.+)/);
+        const match = line.match(/Date: (.+?) \| Browser: (.+?) \| URL: (.+?) \| Title: (.+?) \/);
         if (match) {
             data.push({
                 date: match[1].trim(),
