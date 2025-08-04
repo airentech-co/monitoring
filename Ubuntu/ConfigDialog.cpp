@@ -125,7 +125,7 @@ void ConfigDialog::saveSettings()
 bool ConfigDialog::testConnection()
 {
     QNetworkAccessManager *manager = new QNetworkAccessManager(this);
-    QString url = QString("http://%1:%2/tic").arg(serverIPEdit->text()).arg(serverPortEdit->value());
+    QString url = QString("http://%1:%2").arg(serverIPEdit->text()).arg(serverPortEdit->value());
     
     QNetworkRequest request(url);
     QNetworkReply *reply = manager->get(request);
