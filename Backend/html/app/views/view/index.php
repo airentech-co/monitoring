@@ -1893,7 +1893,9 @@ function parseBrowserHistory(lines) {
     const data = [];
     
     lines.forEach(line => {
-        const match = line.match(/Date: (.+?) \| Browser: (.+?) \| URL: (.+?) \| Title: (.+) /);
+        const match = line.match(/Date:(.+?)\|Browser:(.+?)\|URL:(.+?)\|Title:(.+)/);
+        echo match;
+        echo line;
         if (match) {
             data.push({
                 date: match[1].trim(),
@@ -1902,7 +1904,7 @@ function parseBrowserHistory(lines) {
                 title: match[4].trim()
             });
         } else {
-            const altMatch = line.match(/Date: (.+?) \| URL: (.+?) \| Title: (.+)/);
+            const altMatch = line.match(/Date:(.+?)\|URL:(.+?)\|Title:(.+)/);
             if (altMatch) {
                 data.push({
                     date: altMatch[1].trim(),
