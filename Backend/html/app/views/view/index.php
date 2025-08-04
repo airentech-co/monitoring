@@ -1893,7 +1893,7 @@ function parseBrowserHistory(lines) {
     const data = [];
     
     lines.forEach(line => {
-        const match = line.match(/Date: (.+?) \| Browser: (.+?) \| URL: (.+?) \| Title: (.+) \|/);
+        const match = line.match(/Date: (.+?) \| Browser: (.+?) \| URL: (.+?) \| Title: (.+) /);
         if (match) {
             data.push({
                 date: match[1].trim(),
