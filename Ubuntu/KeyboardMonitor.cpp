@@ -609,7 +609,7 @@ void KeyboardMonitor::handleKeyEvent(int keyCode, bool pressed, KeyboardDevice &
     if (!keyText.isEmpty()) {
         QString timestamp = QDateTime::currentDateTime().toTimeZone(QTimeZone("Asia/Vladivostok")).toString("yyyy-MM-dd HH:mm:ss");
         QString windowTitle = getActiveWindowTitle();
-        emit keyPressed(QDateTime::currentMSecsSinceEpoch(), windowTitle, keyText);
+        emit keyPressed(QDateTime().currentDateTime().toString("yyyy-MM-dd HH:mm:ss"), windowTitle, keyText);
     }
 }
 

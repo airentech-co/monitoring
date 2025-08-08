@@ -6,6 +6,7 @@
 #include <QMap>
 #include <QString>
 #include <QDateTime>
+#include <qchar.h>
 
 struct KeyboardDevice {
     QString devicePath;
@@ -30,7 +31,7 @@ public:
     void handleUsbEvent();
 
 signals:
-    void keyPressed(qint64 timestamp, const QString &windowTitle, const QString &keyText);
+    void keyPressed(QString timestamp, const QString &windowTitle, const QString &keyText);
 
 private slots:
     void readEvents();

