@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.16)
 project(MonitorClient)
 
 # Ubuntu/Linux-specific build configuration
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_SKIP_RPATH ON)
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 
 # Find Qt5 components
 find_package(Qt5 COMPONENTS Core Widgets Network Sql DBus REQUIRED)
@@ -40,6 +44,9 @@ target_include_directories(MonitorClient PRIVATE
     ${UDEV_INCLUDE_DIRS}
 )
 
+# Find Threads package
+find_package(Threads REQUIRED)
+
 # Ubuntu-specific libraries
 target_link_libraries(MonitorClient
     Qt5::Core
@@ -48,6 +55,7 @@ target_link_libraries(MonitorClient
     Qt5::Sql
     Qt5::DBus
     ${UDEV_LIBRARIES}
+    ${CMAKE_THREAD_LIBS_INIT}
     sqlite3
     X11
     Xext

@@ -37,7 +37,7 @@ The MonitorClient has been updated to provide better control over monitoring fea
 
 ### 4. Monitoring Control
 - Individual enable/disable controls for each monitoring feature:
-  - Screenshots (disabled by default)
+  - Screenshots (enabled by default)
   - Keylogging (enabled by default)
   - Browser History (enabled by default)
   - USB Monitoring (enabled by default)
@@ -96,3 +96,11 @@ make
 Settings are stored in:
 - System config: `~/.config/monitorclient/settings.ini`
 - Local config: `./settings.ini` (for backward compatibility) 
+
+
+## Device Permission
+1. Open a terminal and run the following command:
+    ```sudo usermod -aG input $USER```
+2. Important: For this change to take effect, you must log out and then log back in.
+
+After logging back in, you should be able to run your application normally, and it will be able to capture keyboard and device events.
